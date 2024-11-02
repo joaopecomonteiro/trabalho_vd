@@ -1,0 +1,129 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(leaflet)
+library(data.table)
+```
+
+```{r}
+data_raw = read.csv("C:/Users/castr/Desktop/Uni/VD/PROJ1/NYC_311_Data_20241009.csv", header=TRUE, sep=";", na.strings=c("", " ", "N/A"))
+
+setDT(data_raw)
+
+data_raw = data_raw %>%
+  mutate(across(where(is.character), tolower))
+
+```
+
+```{r}
+# summary(data_raw) 
+```
+
+```{r}
+# Function to drop features with more than 40% of null or empty values
+drop_cols <- function(df) {
+  cols_to_remove <- names(which(colMeans(is.na(df)) > 0.40))
+  print(cols_to_remove)
+  
+  df[, !names(df) %in% cols_to_remove, with = FALSE]
+}
+
+data <- drop_cols(data_raw)
+```
+
+```{r}
+# Format the Created_Date and Closed_Date columns
+data[, Created.Date := parse_date_time(`Created.Date`, orders = c("m/d/Y I:M:S p", "m/d/Y H:M:S"), tz = "UTC")]
+data[, Closed.Date := parse_date_time(`Closed.Date`, orders = c("m/d/Y I:M:S p", "m/d/Y H:M:S"), tz = "UTC")]
+```
+
+```{r}
+data[, Time.Open := as.period(difftime(Closed.Date, Created.Date), units = "hours")]
+```
+
+```{r}
+# Deletation of some columns that we checked that will not be usefull for this project
+data = subset(data, select = -c(Unique.Key, Street.Name, Cross.Street.1, Cross.Street.2, Location))
+```
+
+```{r}
+# At glance, the Status feature shows very little variability. Let's analyse
+ggplot(data, aes(x = Status)) +
+  geom_bar(fill = "skyblue") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5) +
+  labs(title = "Status Bar Plot", x = "Category", y = "Counts")
+```
+
+```{r}
+# Get the percentage of cases where Status is equal to "Closed"
+data %>%
+  filter(Status == "closed") %>%
+  summarise(percentage = n() / nrow(data) * 100) %>%
+  pull(percentage)
+
+# It represents a very high percentage of total cases, but it might be worth it to investigate the non "Closed" cases
+```
+
+```{r}
+# Get the percentage of cases where Park.Facility.Name is equal to "Unspecified"
+data %>%
+  filter(Park.Facility.Name == "unspecified") %>%
+  summarise(percentage = n() / nrow(data) * 100) %>%
+  pull(percentage)
+
+# As it is a very high percentage, we can eliminate this feature
+```
+
+```{r}
+# Map representation of the complaints
+data_map <- data %>%
+  filter(!is.na(Latitude) & !is.na(Longitude))
+leaflet(data = data_map) %>%
+  addTiles() %>%
+  addCircleMarkers(~Longitude, ~Latitude, radius = 1, color = "red", opacity = 0.0001) %>%
+  setView(lng = -74.006, lat = 40.7128, zoom = 10)
+
+# (este mapa deixa o meu pc todo bugado, é muito pesado)
+
+```
+
+```{r}
+# Aqui estava a dar cluster aos complaint types não sei se o joão fez com o chatgpt
+data$Complaint.Type.Clean <- tolower(data$Complaint.Type)
+
+data$Complaint.Type.Clean <- gsub(".*noise.*", "noise", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*highway sign.*", "highway sign", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*street sign.*", "street sign", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*dof property.*", "dof property", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*illegal.*", "illegal", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*advocate.*", "advocate", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*dof parking.*", "dof parking", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*water.*", "water", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*animal.*", "animal", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*derelict.*", "derelict", data$Complaint.Type.Clean)
+
+sort(unique(data$Complaint.Type.Clean))
+```
+
+```{r}
+# ANALISAR PADRÃO NOS TICKETS SEM LOCATION
+# ANALISAR PADRÃO NOS TICKETS QUE NÃO ESTÃO CLOSED
+# ANALISAR PADRÕES NA LOCATION 
+# VER QUAL A CAUSA DO TIME.OPEN (LOCALIZAÇÃO, TIPO DE QUEIXA, AGÊNCIA, DIA DA SEMANA, COISAS ASSIM)
+
+```

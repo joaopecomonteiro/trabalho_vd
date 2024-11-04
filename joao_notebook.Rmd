@@ -1,0 +1,136 @@
+---
+title: "R"
+output: html_notebook
+---
+
+
+```{r}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(wordcloud)
+library(tm)
+library(sf)
+```
+
+
+
+
+
+```{r}
+raw_data <- fread("/home/joaomonteiro/Desktop/VD/NYC_311_Data_20241009.csv", sep=";", fill=TRUE)
+```
+
+
+
+```{r}
+clean_data <- subset(raw_data, select = -c(`Unique Key`, `Agency`,
+                                       `Descriptor`, `Incident Address`,
+                                       `Cross Street 1`, `Cross Street 2`,
+                                       `Intersection Street 1`, `Intersection Street 2`,
+                                       `Address Type`, `Landmark`, 
+                                       `Facility Type`, `Resolution Description`,
+                                       `Community Board`, `Park Facility Name`,
+                                       `Vehicle Type`, `Taxi Company Borough`,
+                                       `Taxi Pick Up Location`, `Bridge Highway Name`,
+                                       `Bridge Highway Direction`, `Road Ramp`,
+                                       `Bridge Highway Segment`))
+```
+
+
+```{r}
+clean_data <- clean_data %>% 
+  mutate(across(where(is.character), toupper))
+```
+
+
+```{r}
+
+complaints_by_city <- clean_data %>%
+  filter(City != "" & !is.na(City) & grepl("\\S", City)) %>%
+  group_by(City) %>%
+  summarize(num_complaints = n()) %>%
+  arrange(desc(num_complaints)) %>%
+  slice_max(num_complaints, n = 10)
+
+complaints_by_city$City <- factor(complaints_by_city$City, levels = complaints_by_city$City)
+
+# Plot number of complaints by city
+ggplot(complaints_by_city, aes(x = City, y = num_complaints)) +
+  geom_col(fill = "skyblue") +
+  labs(title = "Number of Complaints by City",
+       x = "City",
+       y = "Number of Complaints") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# Extract the "Complain Type" column
+complain_text <- raw_data$`Complaint Type`
+
+# Create a Corpus (collection of text data) and clean it
+corpus <- Corpus(VectorSource(complain_text))
+corpus <- tm_map(corpus, content_transformer(tolower)) # Convert to lowercase
+corpus <- tm_map(corpus, removePunctuation)            # Remove punctuation
+corpus <- tm_map(corpus, removeNumbers)                # Remove numbers
+corpus <- tm_map(corpus, removeWords, stopwords("en")) # Remove common stopwords
+
+# Create a Document-Term Matrix
+dtm <- TermDocumentMatrix(corpus)
+m <- as.matrix(dtm)
+word_freqs <- sort(rowSums(m), decreasing = TRUE) # Sum up word frequencies
+  df <- data.frame(word = names(word_freqs), freq = word_freqs)
+
+# Generate the word cloud
+set.seed(1234) # For reproducibility
+wordcloud(words = df$word, freq = df$freq, min.freq = 2,
+          max.words = 100, random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+```
+
+```{r}
+
+clean_data$`Complaint Type` <- tolower(clean_data$`Complaint Type`)
+clean_data$`Complaint Type` <- removePunctuation(clean_data$`Complaint Type`)
+clean_data$`Complaint Type` <- removeNumbers(clean_data$`Complaint Type`)
+clean_data$`Complaint Type` <- removeWords(clean_data$`Complaint Type`, stopwords("en"))
+
+# Calculate the most common complaint type by borough
+common_complaint <- clean_data %>%
+  group_by(Borough) %>%
+  count(`Complaint Type`, sort = TRUE) %>%
+  slice_max(n, n = 1) %>%
+  ungroup() %>%
+  select(Borough, `Complaint Type`)
+
+# Load the shapefile with borough boundaries
+boroughs_map <- st_read("/home/joaomonteiro/Desktop/trabalho_vd/borough_shape/nybb.shp")
+
+boroughs_map$BoroName <- toupper(trimws(boroughs_map$BoroName))
+
+# Merge with the common_complaint data
+map_data <- boroughs_map %>%
+  left_join(common_complaint, by = c("BoroName" = "Borough"))  # Adjust the join column if necessary
+
+
+ggplot(map_data) +
+  geom_sf(aes(fill = `Complaint Type`), color = "black", size = 0.2) + # Fill by complaint type
+  geom_sf_text(aes(label = `BoroName`), size = 3, color = "black") + # Label each borough
+  theme_minimal() +
+  labs(title = "Most Common Complaint Type by Borough",
+       fill = "Complaint Type") +
+  theme(axis.text = element_blank(), axis.ticks = element_blank())
+
+```
+
+
+```{r}
+
+
+```
+
+
+
+

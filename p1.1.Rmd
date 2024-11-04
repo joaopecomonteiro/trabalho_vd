@@ -1,0 +1,308 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(leaflet)
+library(data.table)
+library(forcats)
+library(dbscan)
+library(ggmap)
+library(purrr)
+```
+
+```{r}
+data = read.csv("C:/Users/castr/Desktop/Uni/VD/PROJ1/NYC_311_Data_20241009.csv", header=TRUE, sep=";", na.strings=c("", " ", "N/A"))
+
+setDT(data)
+
+data = data[, .(Created.Date, Closed.Date, Agency, Agency.Name, Complaint.Type, Descriptor, City, Borough, Longitude, Latitude)]
+
+data = data %>%
+  mutate(across(where(is.character), tolower))
+
+```
+
+```{r}
+# summary(data_raw) 
+```
+
+```{r}
+# # Function to drop features with more than 40% of null or empty values
+# drop_cols <- function(df) {
+#   cols_to_remove <- names(which(colMeans(is.na(df)) > 0.40))
+#   print(cols_to_remove)
+#   
+#   df[, !names(df) %in% cols_to_remove, with = FALSE]
+# }
+# 
+# data <- drop_cols(data_raw)
+```
+
+```{r}
+# Format the Created_Date and Closed_Date columns
+data[, Created.Date := parse_date_time(`Created.Date`, orders = c("m/d/Y I:M:S p", "m/d/Y H:M:S"), tz = "UTC")]
+data[, Closed.Date := parse_date_time(`Closed.Date`, orders = c("m/d/Y I:M:S p", "m/d/Y H:M:S"), tz = "UTC")]
+```
+
+```{r}
+data[, Time.Open := as.period(difftime(Closed.Date, Created.Date), units = "hours")]
+```
+
+```{r}
+# Deletation of some columns that we checked that will not be usefull for this project
+data = subset(data, select = -c(Unique.Key, Street.Name, Cross.Street.1, Cross.Street.2, Location))
+```
+
+```{r}
+# At glance, the Status feature shows very little variability. Let's analyse
+ggplot(data, aes(x = Status)) +
+  geom_bar(fill = "skyblue") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5) +
+  labs(title = "Status Bar Plot", x = "Category", y = "Counts")
+```
+
+```{r}
+# Get the percentage of cases where Status is equal to "Closed"
+data %>%
+  filter(Status == "closed") %>%
+  summarise(percentage = n() / nrow(data) * 100) %>%
+  pull(percentage)
+
+# It represents a very high percentage of total cases, but it might be worth it to investigate the non "Closed" cases
+```
+
+```{r}
+# Get the percentage of cases where Park.Facility.Name is equal to "Unspecified"
+data %>%
+  filter(Park.Facility.Name == "unspecified") %>%
+  summarise(percentage = n() / nrow(data) * 100) %>%
+  pull(percentage)
+
+# As it is a very high percentage, we can eliminate this feature
+```
+
+```{r}
+data_map <- data %>%
+  filter(!is.na(Latitude) & !is.na(Longitude))
+
+ggplot(data_map, aes(x = Longitude, y = Latitude)) +
+  geom_point(alpha = 0.5, size = 1) +
+  labs(title = "Spatial Distribution of Complaints by Top 5 Agencies", color = "Agency") +
+  theme_minimal() +
+  scale_color_viridis_d(option = "D") +
+  coord_fixed()
+```
+
+```{r}
+# Map representation of the complaints
+data_map <- data %>%
+  filter(!is.na(Latitude) & !is.na(Longitude))
+leaflet(data = data_map) %>%
+  addTiles() %>%
+  addCircleMarkers(~Longitude, ~Latitude, radius = 1, color = "red", opacity = 0.0001) %>%
+  setView(lng = -74.006, lat = 40.7128, zoom = 10)
+
+# (este mapa deixa o meu pc todo bugado, é muito pesado)
+
+```
+
+```{r}
+
+```
+
+```{r}
+# Aqui estava a dar cluster aos complaint types não sei se o joão fez com o chatgpt
+data$Complaint.Type.Clean <- tolower(data$Complaint.Type)
+
+data$Complaint.Type.Clean <- gsub(".*noise.*", "noise", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*highway sign.*", "highway sign", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*street sign.*", "street sign", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*dof property.*", "dof property", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*illegal.*", "illegal", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*advocate.*", "advocate", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*dof parking.*", "dof parking", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*water.*", "water", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*animal.*", "animal", data$Complaint.Type.Clean)
+
+data$Complaint.Type.Clean <- gsub(".*derelict.*", "derelict", data$Complaint.Type.Clean)
+
+sort(unique(data$Complaint.Type.Clean))
+```
+
+```{r}
+# Step 1: Count complaints per day using Created.Date
+daily_complaints <- data[, .N, by = .(date = as.Date(Created.Date))]
+setnames(daily_complaints, "N", "complaint_count")  # Rename for clarity
+
+# Step 1: Identify the last date in the dataset
+last_date <- max(daily_complaints$date)
+
+# Step 2: Filter out the last date
+daily_complaints_filtered <- daily_complaints %>%
+  filter(date < last_date)
+
+complaints_ts_day <- ts(daily_complaints_filtered$complaint_count, frequency = 1, start = 01)
+
+autoplot(complaints_ts_day) +
+  labs(title = "Complaints as Time Series", x = "Day", y = "Number of Complaints") +
+  theme_minimal()
+
+```
+
+```{r}
+# Load necessary libraries
+library(data.table)
+library(astsa)
+library(fpp2)
+library(forecast)
+
+data[, hour := format(Created.Date, "%Y-%m-%d %H:00:00")]
+data[, hour := as.POSIXct(hour, format="%Y-%m-%d %H:%M:%S", tz="UTC")]
+
+# Count complaints per hour
+hourly_complaints <- data[, .N, by = hour]
+setnames(hourly_complaints, "N", "complaint_count")  # Rename for clarity
+
+complaints_ts <- ts(hourly_complaints$complaint_count, frequency = 24, start = 01)
+
+
+# Plot the time series
+autoplot(complaints_ts) +
+  labs(title = "Complaints as Time Series", x = "Day", y = "Number of Complaints") +
+  theme_minimal()
+
+
+```
+
+```{r}
+tsplot(
+  window(
+    complaints_ts,
+    start=1,
+    end = 8))
+
+tsplot(
+  window(
+    complaints_ts,
+    start=9,
+    end = 16))
+
+tsplot(
+  window(
+    complaints_ts,
+    start=17,
+    end = 24))
+
+tsplot(
+  window(
+    complaints_ts,
+    start=25))
+```
+
+```{r}
+ggseasonplot(complaints_ts) + 
+    labs(
+    x = "Horas",
+    y = "Número de Queixas",
+  )
+```
+
+```{r}
+# ANALISAR PADRÃO NOS TICKETS SEM LOCATION
+# ANALISAR PADRÃO NOS TICKETS QUE NÃO ESTÃO CLOSED
+# ANALISAR PADRÕES NA LOCATION 
+# VER QUAL A CAUSA DO TIME.OPEN (LOCALIZAÇÃO, TIPO DE QUEIXA, AGÊNCIA, DIA DA SEMANA, COISAS ASSIM)
+
+```
+
+```{r}
+most_common_agency <- complaints %>%
+  group_by(city, agency) %>%
+  summarise(count = n()) %>%
+  arrange(city, desc(count)) %>%
+  slice(1) %>%
+  ungroup()
+
+# Merge the most common agency with city coordinates
+city_data <- cities %>%
+  left_join(most_common_agency, by = "city")
+
+# ANALISAR PADROES POR CITY
+
+data_summary <- data %>%
+  group_by(City, Agency) %>%
+  summarize(Total_C = n(), .groups = 'drop')
+
+most_common_bureau <- data_summary %>%
+  group_by(City) %>%
+  filter(Total_C == max(Total_C)) %>%
+  ungroup()
+
+print(most_common_bureau)
+```
+
+```{r}
+ggplot(most_common_bureau, aes(x = fct_infreq(Agency))) +
+  geom_bar(fill = "skyblue") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5) +
+  labs(title = "Counts of cases where agency is number 1 at each city", x = "Agency", y = "Counts")
+```
+
+```{r}
+
+cities <- read.csv("C:/Users/castr/Desktop/Uni/VD/PROJ1/City,Latitude,Longitude.csv", header=TRUE, sep=",")
+
+most_common_agency <- data %>%
+  group_by(City, Agency) %>%
+  summarise(count = n()) %>%
+  arrange(City, desc(count)) %>%
+  slice(1) %>%
+  ungroup()
+
+# Merge the most common agency with city coordinates
+city_data <- cities %>%
+  left_join(most_common_agency, by = "City")
+
+city_data <- subset(city_data, City != 'palos verdes peninsula')
+
+# Create the base map
+ggplot(data = city_data) +
+  geom_point(aes(x = Longitude, y = Latitude, color = Agency), size = 1) +
+  labs(title = "Most Common Agency per City", x = "Longitude", y = "Latitude") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+```
+
+```{r}
+top_agencies <- data %>%
+  group_by(Borough) %>%
+  tally() %>%
+  top_n(5, n) %>%
+  pull(Borough)
+
+data_clean <- data %>%
+  filter(Borough %in% top_agencies & 
+         !is.na(Longitude) & 
+         !is.na(Latitude))
+
+ggplot(data_clean, aes(x = Longitude, y = Latitude, color = Borough)) +
+  geom_point(alpha = 0.2, size = 1) +
+  labs(title = "Spatial Distribution", color = "Borough") +
+  theme_minimal() +
+  scale_color_viridis_d(option = "D") +
+  coord_fixed()
+```

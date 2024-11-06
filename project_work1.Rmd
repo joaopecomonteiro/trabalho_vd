@@ -1,0 +1,337 @@
+---
+title: "Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Install libraries
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(RColorBrewer)
+
+# Read data and choose columns
+data <- fread("C:/Users/diogo/OneDrive/Ambiente de Trabalho/FCUP - Data Science/1º Ano/1º Semestre/Visualização de Dados/Project/Dataset-20241021/NYC_311_Data_20241009/NYC_311_Data_20241009.csv", sep=";", fill=TRUE)
+
+data <- data[, .(Created_Date, Closed_Date, Agency, Agency_Name, Complaint_Type, Descriptor, City, Borough, Longitude, Latitude)]
+```
+
+
+```{r}
+# Date Formation 
+data[, Created.Date := parse_date_time(Created_Date, orders = c("m/d/Y I:M:S p", "m/d/Y H:M"), tz = "UTC")]
+data[, Closed.Date := parse_date_time(Closed_Date, orders = c("m/d/Y I:M:S p", "m/d/Y H:M"), tz = "UTC")]
+
+data[, duration := as.period(difftime(Closed.Date, Created.Date))]
+
+data[, duration_formatted := paste(duration@year * 365 + duration@month * 30 + duration@day, 
+                                      "dias,", 
+                                      duration@hour, 
+                                      "horas,", 
+                                      duration@minute, 
+                                      "minutos")]
+
+head(data[, .(Created.Date, Closed.Date, duration_formatted)])
+
+data[, 'Created_Date' := NULL]
+data[, 'Closed_Date' := NULL]
+```
+
+```{r}
+# Adapt per types of complaint
+data$Complaint_Type.Clean <- tolower(data$Complaint_Type)
+
+data$Complaint_Type.Clean <- gsub(".*noise.*", "noise", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*highway sign.*", "highway sign", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*street sign.*", "street sign", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*dof property.*", "dof property", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*illegal.*", "illegal", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*advocate.*", "advocate", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*dof parking.*", "dof parking", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*water.*", "water", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*animal.*", "animal", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*derelict.*", "derelict", data$Complaint_Type.Clean)
+
+sort(unique(data$Complaint_Type.Clean))
+```
+
+
+```{r}
+# Set Created.Date as Date and delete 09-30 day
+specific_date <- as.Date("2016-09-30")
+data <- data %>%
+  filter(Created.Date != specific_date)
+data <- data %>%
+  filter(Created.Date != specific_date)
+
+data <- data %>%
+  mutate(Created.Date = as.Date(Created.Date))
+
+
+# Complaints by borough and day
+complaints_by_borough <- data %>%
+  mutate(Borough = trimws(Borough)) %>%
+  filter(!is.na(Borough) & Borough != "Unspecified" & Borough != "")
+
+complaints_by_borough <- complaints_by_borough %>%
+  group_by(Borough, Created.Date) %>%
+  summarise(total_complaints = n()) %>%
+  ungroup()
+
+# Graph
+ggplot(complaints_by_borough, aes(x = Created.Date, y = total_complaints, color = Borough)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Evolução do Número de Queixas por Borough",
+    x = "Data",
+    y = "Número de Queixas"
+  ) +
+  theme_minimal() +
+  theme(legend.title = element_blank()) +
+  scale_x_date(date_labels = "%m-%d") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+```
+
+```{r}
+# Filtrar para o borough "Brooklyn" 
+brooklyn_complaints <- data %>%
+  filter(Borough == "BROOKLYN") %>%
+  group_by(Created.Date, Complaint_Type.Clean) %>%
+  summarise(total_complaints = n(), .groups = 'drop')
+
+# Top-10
+top_complaints <- brooklyn_complaints %>%
+  group_by(Complaint_Type.Clean) %>%
+  summarise(total = sum(total_complaints), .groups = 'drop') %>%
+  arrange(desc(total)) %>%
+  slice_head(n = 10)  
+
+# Top-10
+brooklyn_complaints <- brooklyn_complaints %>%
+  filter(Complaint_Type.Clean %in% top_complaints$Complaint_Type.Clean)
+
+brooklyn_complaints <- brooklyn_complaints %>%
+  mutate(Complaint_Type.Clean = factor(Complaint_Type.Clean, 
+                                 levels = top_complaints$Complaint_Type.Clean)) 
+
+
+```
+
+```{r}
+# Colour
+paleta <- brewer.pal(n = length(unique(brooklyn_complaints$Complaint_Type.Clean)), name = "Set3")
+
+# Graph
+ggplot(brooklyn_complaints, aes(x = Created.Date, y = total_complaints, fill = Complaint_Type.Clean)) +
+  geom_area(alpha = 0.8) +
+  labs(
+    title = "Evolução do Número de Queixas por Tipo em Brooklyn",
+    x = "Data",
+    y = "Número de Queixas"
+  ) +
+  theme_minimal() +
+  theme(legend.title = element_blank()) +
+  scale_x_date(breaks = brooklyn_complaints$Created.Date, date_labels = "%m-%d") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = paleta)
+```
+
+```{r}
+# Count complaints by Complaint_Type
+type_complaints <- data %>%
+  group_by(Complaint_Type.Clean) %>%
+  summarise(Complaint_Count = n(), .groups = 'drop') %>%
+  arrange(desc(Complaint_Count)) %>%
+  slice_head(n = 10) 
+
+# Top-10
+type_complaints <- type_complaints %>%
+  filter(Complaint_Type.Clean %in% type_complaints$Complaint_Type.Clean)
+
+
+# Plot the bar chart for complaint types
+ggplot(type_complaints, aes(x = reorder(Complaint_Type.Clean, -Complaint_Count), y = Complaint_Count)) +
+  geom_bar(stat = "identity", fill = "salmon") +
+  labs(title = "Distribution of Complaint Types",
+       x = "Complaint Type",
+       y = "Number of Complaints") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+```{r}
+# Count the number of complaints by day and type
+daily_type_complaints <- data %>%
+  group_by(Created.Date, Complaint_Type.Clean) %>%
+  summarise(Complaint_Count = n(), .groups = 'drop') %>%
+  arrange(desc(Complaint_Count)) 
+
+specific_complaint_type <- c("noise", "illegal", "water", "blocked driveway", "unsanitary condition", "street light condition", "street condition", "derelict", "homeless person assistance", "paint/plaster")  # Change this to the desired complaint type (with more than 5k)
+
+daily_type_complaints <- daily_type_complaints %>%
+  filter(Complaint_Type.Clean %in% specific_complaint_type)
+
+
+# Plot stacked area chart
+ggplot(daily_type_complaints, aes(x = Created.Date, y = Complaint_Count, fill = Complaint_Type.Clean)) +
+  geom_area(alpha = 0.6) +
+  labs(title = "Complaints Over Time by Type",
+       x = "Date",
+       y = "Number of Complaints") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = paleta)
+
+```
+```{r}
+## Without Noise
+# Count the number of complaints by day and type
+daily_type_complaints <- data %>%
+  group_by(Created.Date, Complaint_Type.Clean) %>%
+  summarise(Complaint_Count = n(), .groups = 'drop') %>%
+  arrange(desc(Complaint_Count)) 
+
+specific_complaint_type <- c("illegal", "water", "blocked driveway", "unsanitary condition", "street light condition", "street condition", "derelict", "homeless person assistance", "paint/plaster")  # Change this to the desired complaint type (with more than 5k)
+
+daily_type_complaints <- daily_type_complaints %>%
+  filter(Complaint_Type.Clean %in% specific_complaint_type)
+
+
+# Plot stacked area chart
+ggplot(daily_type_complaints, aes(x = Created.Date, y = Complaint_Count, fill = Complaint_Type.Clean)) +
+  geom_area(alpha = 0.6) +
+  labs(title = "Complaints Over Time by Type",
+       x = "Date",
+       y = "Number of Complaints") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = paleta)
+```
+```{r}
+# Contar o número de queixas por dia e borough
+daily_borough_complaints <- data %>%
+  group_by(Created.Date, Borough) %>%
+  summarise(Complaint_Count = n(), .groups = 'drop') %>%
+  arrange(desc(Complaint_Count)) 
+
+# Especificar os boroughs de interesse
+specific_boroughs <- c("BROOKLYN", "MANHATTAN", "QUEENS", "BRONX", "STATEN ISLAND") 
+
+# Filtrar apenas os boroughs especificados
+daily_borough_complaints <- daily_borough_complaints %>%
+  filter(Borough %in% specific_boroughs)
+
+# Plot do gráfico de área empilhada
+ggplot(daily_borough_complaints, aes(x = Created.Date, y = Complaint_Count, fill = Borough)) +
+  geom_area(alpha = 0.6) +
+  labs(title = "Complaints Over Time by Borough",
+       x = "Date",
+       y = "Number of Complaints") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_fill_manual(values = paleta)  
+
+```
+
+```{r}
+# Classificar os dias como Dia de Semana ou Fim de Semana
+data <- data %>%
+  mutate(Day_Type = case_when(
+    Created.Date == as.Date("2016-09-05") ~ "Fim de Semana",  # Inclui o feriado como Fim de Semana
+    wday(Created.Date) %in% c(1, 7) ~ "Fim de Semana",       # Domingo e Sábado
+    TRUE ~ "Dia de Semana"                                     # Todos os outros dias
+  ))
+
+# Contar o número de queixas por dia e tipo, e calcular a média
+daily_type_complaints <- data %>%
+  group_by(Day_Type, Complaint_Type.Clean) %>%
+  summarise(Complaint_Count = n(), .groups = 'drop')
+
+# Calcular a média das queixas por tipo e por dia da semana
+average_complaints <- daily_type_complaints %>%
+  group_by(Day_Type, Complaint_Type.Clean) %>%
+  summarise(Average_Count = mean(Complaint_Count), .groups = 'drop') 
+
+# Columns
+specific_complaint_type <- c("noise", "illegal", "water", "blocked driveway", "unsanitary condition", "street light condition", "street condition", "derelict", "homeless person assistance", "paint/plaster")  # Change to the complaint type with more than 5k
+
+average_complaints <- average_complaints %>%
+  filter(Complaint_Type.Clean %in% specific_complaint_type)
+
+# Ordenar os tipos de queixa dentro de cada tipo de dia pela média
+average_complaints <- average_complaints %>%
+  arrange(Day_Type, desc(Average_Count)) %>%
+  mutate(Complaint_Type.Clean = factor(Complaint_Type.Clean, levels = unique(Complaint_Type.Clean)))  # Níveis do fator
+
+
+# Plot do gráfico de barras
+ggplot(average_complaints, aes(x = Day_Type, y = Average_Count, fill = Complaint_Type.Clean)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(title = "Média de Queixas por Tipo de Dia e Tipo de Queixa",
+       x = "Tipo de Dia",
+       y = "Média de Queixas") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set3")  
+```
+
+```{r}
+# Contar o número de queixas por dia e tipo, e calcular a média
+daily_type_complaints <- data %>%
+  group_by(Day_Type, Complaint_Type.Clean) %>%
+  summarise(Complaint_Count = n(), .groups = 'drop')
+
+# Calcular a média das queixas por tipo e por dia da semana
+average_complaints <- daily_type_complaints %>%
+  group_by(Complaint_Type.Clean, Day_Type) %>%
+  summarise(Average_Count = mean(Complaint_Count), .groups = 'drop')
+
+# Calcular a média geral para cada tipo de queixa
+overall_average <- average_complaints %>%
+  group_by(Complaint_Type.Clean) %>%
+  summarise(Overall_Average = mean(Average_Count), .groups = 'drop') %>%
+  arrange(desc(Overall_Average))
+
+# Unir as médias gerais de volta ao dataframe original para ordenação
+average_complaints <- average_complaints %>%
+  left_join(overall_average, by = "Complaint_Type.Clean")
+
+# Ordenar os tipos de queixa pela média geral
+average_complaints$Complaint_Type.Clean <- factor(average_complaints$Complaint_Type.Clean,
+                                       levels = overall_average$Complaint_Type.Clean)
+
+
+# Columns
+specific_complaint_type <- c("noise", "illegal", "water", "blocked driveway", "unsanitary condition", "street light condition", "street condition", "derelict", "homeless person assistance", "paint/plaster")  # Change this to the desired complaint type (with more than 5k)
+
+average_complaints <- average_complaints %>%
+  filter(Complaint_Type.Clean %in% specific_complaint_type)
+
+
+
+
+# Plotar o gráfico de barras
+ggplot(average_complaints, aes(x = Complaint_Type.Clean, y = Average_Count, fill = Day_Type)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(title = "Média de Queixas por Tipo e Dia",
+       x = "Tipo de Queixa",
+       y = "Média de Queixas") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c("Dia de Semana" = "lightblue", "Fim de Semana" = "salmon")) 
+
+```
+

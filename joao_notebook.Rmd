@@ -26,7 +26,7 @@ raw_data <- fread("/home/joaomonteiro/Desktop/VD/NYC_311_Data_20241009.csv", sep
 
 ```{r}
 clean_data <- subset(raw_data, select = -c(`Unique Key`, `Agency`,
-                                       `Descriptor`, `Incident Address`,
+                                       `Descriptor`,
                                        `Cross Street 1`, `Cross Street 2`,
                                        `Intersection Street 1`, `Intersection Street 2`,
                                        `Address Type`, `Landmark`, 
@@ -127,10 +127,657 @@ ggplot(map_data) +
 
 
 ```{r}
+ggplot(data = clean_data) +
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), size = 2, alpha = 0.7) +
+  labs(title = "Complaints by Location", x = "Longitude", y = "Latitude") +
+  theme_minimal()
+
+# If you have a boroughs shapefile
+ggplot() +
+  geom_sf(data = boroughs_map, fill = "white", color = "black") +
+  geom_point(data = clean_data, aes(x = Longitude, y = Latitude, color = `Complaint Type`), size = 2, alpha = 0.7) +
+  labs(title = "Complaints by Location", x = "Longitude", y = "Latitude") +
+  theme_minimal()
+
+```
+
+
+```{r}
+top_agencies <- clean_data %>%
+  group_by(Borough) %>%
+  tally() %>%
+  top_n(5, n) %>%
+  pull(Borough)
+
+data_clean <- clean_data %>%
+  filter(Borough %in% top_agencies & 
+         !is.na(Longitude) & 
+         !is.na(Latitude))
+
+ggplot(clean_data, aes(x = Longitude, y = Latitude, color = Borough)) +
+  geom_point(alpha = 0.2, size = 1) +
+  labs(title = "Spatial Distribution", color = "Borough") +
+  theme_minimal() +
+  scale_color_viridis_d(option = "D") +
+  coord_fixed()
+```
+
+```{r}
+top_complaints <- clean_data %>%
+  count(`Complaint Type`, sort = TRUE) %>%
+  top_n(10, n) %>%
+  pull(`Complaint Type`)
+
+filtered_data <- clean_data %>%
+  filter(`Complaint Type` %in% top_complaints)
+
+ggplot(filtered_data, aes(x = Longitude, y = Latitude, color = `Complaint Type`)) +
+  geom_point(alpha = 0.2, size = 1) +
+  labs(title = "Spatial Distribution", color = "Complaint Type") +
+  theme_minimal() +
+  scale_color_viridis_d(option = "D") +
+  coord_fixed()
 
 
 ```
 
+
+```{r}
+# Group by Borough and ComplaintType, and count occurrences
+top_complaint_by_borough <- clean_data %>%
+  group_by(Borough, `Complaint Type`) %>%
+  summarise(count = n()) %>%
+  top_n(1, count) %>%        # Get the most common complaint type in each borough
+  ungroup()
+
+# Filter the main dataset to only include rows matching the most common complaint type per borough
+filtered_data <- clean_data %>%
+  semi_join(top_complaint_by_borough, by = c("Borough", "Complaint Type"))
+
+ggplot(data = filtered_data) +
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), alpha = 0.7, size = 2) +
+  theme_minimal() +
+  labs(
+    title = "Most Common Complaint Type in Each NYC Borough",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Complaint Type"
+  ) +
+  scale_color_viridis_d(option = "plasma")
+
+
+```
+
+
+```{r}
+complaints_data <- clean_data %>%
+  mutate(`Created Date` = mdy_hms(`Created Date`))
+
+filtered_date_data <- complaints_data %>%
+  filter(as.Date(`Created Date`) == as.Date("2016-09-01"))
+
+top_complaints <- filtered_date_data %>%
+  count(`Complaint Type`, sort = TRUE) %>%
+  top_n(10, n) %>%
+  pull(`Complaint Type`)
+
+filtered_data <- filtered_date_data %>%
+  filter(`Complaint Type` %in% top_complaints)
+
+ggplot(filtered_data, aes(x = Longitude, y = Latitude, color = `Complaint Type`)) +
+  geom_point(alpha = 0.2, size = 1) +
+  labs(title = "Spatial Distribution", color = "Complaint Type") +
+  theme_minimal() +
+  scale_color_viridis_d(option = "D") +
+  coord_fixed()
+
+```
+
+
+
+```{r}
+complaints_data <- clean_data %>%
+  mutate(`Created Date` = mdy_hms(`Created Date`))
+
+filtered_date_data <- complaints_data %>%
+  filter(as.Date(`Created Date`) == as.Date("2016-09-06"))
+
+
+top_complaint_by_borough <- filtered_date_data %>%
+  group_by(Borough, `Complaint Type`) %>%
+  summarise(count = n()) %>%
+  top_n(1, count) %>%        # Get the most common complaint type in each borough
+  ungroup()
+
+
+
+filtered_data <- filtered_date_data %>%
+  semi_join(top_complaint_by_borough, by = c("Borough", "Complaint Type"))
+
+ggplot(data = filtered_data) +
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), alpha = 0.7, size = 2) +
+  theme_minimal() +
+  labs(
+    title = "Most Common Complaint Type in Each NYC Borough",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Complaint Type"
+  ) +
+  scale_color_viridis_d(option = "plasma")
+
+```
+
+```{r}
+
+unique(clean_data$Borough)
+
+```
+
+
+
+
+```{r}
+noise_residential_data <- clean_data %>%
+  filter(`Complaint Type` == "noise  residential",
+         `Borough` == "BROOKLYN")
+
+noise_residential_data <- noise_residential_data %>%
+  mutate(`Created Date` = mdy_hms(`Created Date`))
+
+# Aggregate data by day
+daily_noise_counts <- noise_residential_data %>%
+  group_by(date = as.Date(`Created Date`)) %>%
+  summarise(count = n())
+
+# <- daily_noise_counts %>%
+#  right_join(data.frame(date = all_dates), by = "date") %>%
+#  mutate(count = ifelse(is.na(count), 0, count))  #
+
+ggplot(data = daily_noise_counts, aes(x = date, y = count)) +
+  geom_line(color = "blue") +
+  theme_minimal() +
+  labs(
+    title = "Daily Occurrences of 'Noise Residential' Complaints in Brooklyn",
+    x = "Date",
+    y = "Number of Complaints"
+  ) +
+  scale_x_date(date_breaks = "1 day", date_labels = "%m-%d") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+```{r}
+
+september_data <- clean_data %>%
+  mutate(`Created Date` = mdy_hms(`Created Date`))
+
+noise_september_data <- september_data %>%
+  filter(
+    `Complaint Type` == "noise  residential",
+    as.Date(`Created Date`) %in% as.Date(c("2016-9-16", "2016-9-17", "2016-9-18"))
+  )
+
+
+# Aggregate by hour
+hourly_noise_counts <- noise_september_data %>%
+  mutate(hour = floor_date(`Created Date`, "hour")) %>%
+  group_by(hour) %>%
+  summarise(count = n())
+
+ggplot(data = hourly_noise_counts, aes(x = hour, y = count)) +
+  geom_line(color = "blue") +
+  theme_minimal() +
+  labs(
+    title = "Hourly Occurrences of 'Noise Residential' Complaints on Sep 16-18, 2016",
+    x = "Hour",
+    y = "Number of Complaints"
+  ) +
+  scale_x_datetime(date_breaks = "1 hour", date_labels = "%H:%M") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+
+
+```{r}
+september_data <- clean_data %>%
+  mutate(`Created Date` = mdy_hms(`Created Date`))
+
+noise_september_data <- september_data %>%
+  filter(
+    `Complaint Type` == "noise  residential",
+    as.Date(`Created Date`) %in% as.Date(c("2016-9-20", "2016-9-21"))
+  )
+
+
+# Aggregate by hour
+hourly_noise_counts <- noise_september_data %>%
+  mutate(hour = floor_date(`Created Date`, "hour")) %>%
+  group_by(hour) %>%
+  summarise(count = n())
+
+ggplot(data = hourly_noise_counts, aes(x = hour, y = count)) +
+  geom_line(size=1, color="#619CFF") +
+  theme_minimal() +
+  labs(
+    title = "Hourly Occurrences of 'Noise Residential' Complaints on Sep 20-21, 2016",
+    x = "Hour",
+    y = "Complaints"
+  ) +
+  scale_x_datetime(date_breaks = "2 hour", date_labels = "%H:%M") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+
+```{r}
+
+september_data <- clean_data %>%
+  mutate(`Created Date` = mdy_hms(`Created Date`))
+
+
+top_incident_addresses <- september_data %>%
+  filter(
+    Borough == "BROOKLYN",
+    `Complaint Type` == "noise  residential",
+    as.Date(`Created Date`) %in% as.Date(c("2016-9-20", "2016-9-21")),
+    !is.na(`Incident Address`),
+    `Incident Address` != ""
+  ) %>%
+  count(`Incident Address`, sort = TRUE) %>%
+  arrange(desc(n)) %>%       
+  head(3) %>% 
+  pull(`Incident Address`)
+
+
+
+filtered_data <- september_data %>%
+  filter(
+    Borough == "BROOKLYN",
+    `Complaint Type` == "noise  residential",
+    `Incident Address` %in% top_incident_addresses,
+    as.Date(`Created Date`) %in% as.Date(c("2016-9-20", "2016-9-21")),
+    !is.na(`Created Date`)
+  ) %>%
+  mutate(Hour = floor_date(`Created Date`, "hour"))
+
+
+hourly_counts <- filtered_data %>%
+  group_by(Hour, `Incident Address`) %>%
+  summarise(count = n(), .groups = 'drop')
+
+
+ggplot(hourly_counts, aes(x = Hour, y = count, color = `Incident Address`)) +
+  geom_line(size = 1) +
+  labs(
+    title = "Noise Residential Complaints in Brooklyn 20-21 Sep (Top 3 Addresses)",
+    y = "Complaints",
+    color = "Incident Address"
+  ) +
+  scale_x_datetime(date_breaks = "2 hour", date_labels = "%H:%M") +
+  
+  theme_minimal() +
+  
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+
+```
+
+
+```{r}
+print(top_incident_addresses)
+unique(filtered_data$`Incident Address`)
+```
+
+
+
+
+```{r}
+
+weekend_data <- september_data %>%
+  filter(
+    as.Date(`Created Date`) %in% as.Date(c("2016-9-3", "2016-9-4",
+                                           "2016-9-5", "2016-9-10",
+                                           "2016-9-11", "2016-9-17",
+                                           "2016-9-18","2016-9-24",
+                                           "2016-9-20", "2016-9-21")),
+    `Borough` != "UNSPECIFIED",
+    !is.na(Borough) & Borough != ""
+  )
+
+
+top_complaints <- weekend_data %>%
+  count(`Complaint Type`, sort = TRUE) %>%
+  top_n(10, n) %>%
+  pull(`Complaint Type`)
+
+filtered_data <- weekend_data %>%
+  filter(`Complaint Type` %in% top_complaints)
+
+ggplot(filtered_data, aes(x = Longitude, y = Latitude, color = `Complaint Type`)) +
+  geom_point(alpha = 0.2, size = 1) +
+  labs(title = "Spatial Distribution", color = "Complaint Type") +
+  theme_minimal() +
+  scale_color_viridis_d(option = "D") +
+  coord_fixed()
+
+
+```
+
+
+```{r}
+top_complaint_by_borough <- weekend_data %>%
+  group_by(Borough, `Complaint Type`) %>%
+  summarise(count = n()) %>%
+  top_n(1, count) %>%        # Get the most common complaint type in each borough
+  ungroup()
+
+# Filter the main dataset to only include rows matching the most common complaint type per borough
+filtered_data <- weekend_data %>%
+  semi_join(top_complaint_by_borough, by = c("Borough", "Complaint Type"))
+
+
+ggplot(data = filtered_data) +
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), 
+             alpha = 0.7, size = 2) +
+  scale_color_manual(values = "orange", labels = unique(filtered_data$`Complaint Type`)) +  # Set all points to orange
+  theme_minimal() +
+  labs(
+    title = "Most Common Complaint Type in Each NYC Borough - Weekend",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Complaint Type"
+  )
+```
+
+
+
+
+
+```{r}
+week_data <- september_data %>%
+  filter(
+    as.Date(`Created Date`) %notin% as.Date(c("2016-9-3", "2016-9-4",
+                                           "2016-9-5", "2016-9-10",
+                                           "2016-9-11", "2016-9-17",
+                                           "2016-9-18","2016-9-24",
+                                           "2016-9-20", "2016-9-21")),
+    `Borough` != "UNSPECIFIED",
+    !is.na(Borough) & Borough != ""
+  )
+
+top_complaint_by_borough <- week_data %>%
+  group_by(Borough, `Complaint Type`) %>%
+  summarise(count = n()) %>%
+  top_n(1, count) %>%        # Get the most common complaint type in each borough
+  ungroup()
+
+# Filter the main dataset to only include rows matching the most common complaint type per borough
+filtered_data <- week_data %>%
+  semi_join(top_complaint_by_borough, by = c("Borough", "Complaint Type"))
+
+ggplot(data = filtered_data) +
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), alpha = 0.7, size = 2) +
+  theme_minimal() +
+  labs(
+    title = "Most Common Complaint Type in Each NYC Borough - Week",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Complaint Type"
+  ) +
+  scale_color_viridis_d(option = "plasma")
+
+```
+
+
+```{r}
+library(gridExtra)
+
+
+# Group by Borough and ComplaintType, and count occurrences
+top_complaint_by_borough <- clean_data %>%
+  group_by(Borough, `Complaint Type`) %>%
+  summarise(count = n()) %>%
+  top_n(1, count) %>%        # Get the most common complaint type in each borough
+  ungroup()
+
+# Filter the main dataset to only include rows matching the most common complaint type per borough
+filtered_data <- clean_data %>%
+  semi_join(top_complaint_by_borough, by = c("Borough", "Complaint Type"))
+
+plot1 <- ggplot(data = filtered_data) +
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), alpha = 0.7, size = 2) +
+  theme_minimal() +
+  labs(
+    title = "Most Common Complaint Type in Each NYC Borough",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Complaint Type"
+  ) +
+  scale_color_viridis_d(option = "plasma") +
+ coord_fixed()
+
+
+
+weekend_data <- september_data %>%
+  filter(
+    as.Date(`Created Date`) %in% as.Date(c("2016-9-3", "2016-9-4",
+                                           "2016-9-5", "2016-9-10",
+                                           "2016-9-11", "2016-9-17",
+                                           "2016-9-18","2016-9-24",
+                                           "2016-9-20", "2016-9-21")),
+    `Borough` != "UNSPECIFIED",
+    !is.na(Borough) & Borough != ""
+  )
+
+
+top_complaint_by_borough <- weekend_data %>%
+  group_by(Borough, `Complaint Type`) %>%
+  summarise(count = n()) %>%
+  top_n(1, count) %>%        # Get the most common complaint type in each borough
+  ungroup()
+
+# Filter the main dataset to only include rows matching the most common complaint type per borough
+filtered_data <- weekend_data %>%
+  semi_join(top_complaint_by_borough, by = c("Borough", "Complaint Type"))
+
+
+plot2 <- ggplot(data = filtered_data) +
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), 
+             alpha = 0.7, size = 2) +
+  scale_color_manual(values = "orange", labels = unique(filtered_data$`Complaint Type`)) +  # Set all points to orange
+  theme_minimal() +
+  labs(
+    title = "Most Common Complaint Type in Each NYC Borough - Weekend",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Complaint Type"
+  ) +
+  coord_fixed()
+
+
+
+week_data <- september_data %>%
+  filter(
+    as.Date(`Created Date`) %notin% as.Date(c("2016-9-3", "2016-9-4",
+                                           "2016-9-5", "2016-9-10",
+                                           "2016-9-11", "2016-9-17",
+                                           "2016-9-18","2016-9-24",
+                                           "2016-9-20", "2016-9-21")),
+    `Borough` != "UNSPECIFIED",
+    !is.na(Borough) & Borough != ""
+  )
+
+top_complaint_by_borough <- week_data %>%
+  group_by(Borough, `Complaint Type`) %>%
+  summarise(count = n()) %>%
+  top_n(1, count) %>%        # Get the most common complaint type in each borough
+  ungroup()
+
+# Filter the main dataset to only include rows matching the most common complaint type per borough
+filtered_data <- week_data %>%
+  semi_join(top_complaint_by_borough, by = c("Borough", "Complaint Type"))
+
+plot3 <- ggplot(data = filtered_data) +
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), alpha = 0.7, size = 2) +
+  theme_minimal() +
+  labs(
+    title = "Most Common Complaint Type in Each NYC Borough - Week",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Complaint Type"
+  ) +
+  scale_color_viridis_d(option = "plasma")+
+  +coord_fixed()
+
+
+grid.arrange(plot1, plot2, plot3, ncol = 1)
+
+```
+
+
+
+
+
+```{r}
+nyc_boroughs <- st_read("/home/joaomonteiro/Desktop/trabalho_vd/borough_shape/nybb.shp")
+
+nyc_boroughs <- st_transform(nyc_boroughs, crs = 4326)
+
+borough_centroids <- st_centroid(nyc_boroughs)
+
+week_data <- september_data %>%
+  filter(
+    as.Date(`Created Date`) %notin% as.Date(c("2016-9-3", "2016-9-4",
+                                           "2016-9-5", "2016-9-10",
+                                           "2016-9-11", "2016-9-17",
+                                           "2016-9-18","2016-9-24",
+                                           "2016-9-20", "2016-9-21")),
+    `Borough` != "UNSPECIFIED",
+    !is.na(Borough) & Borough != ""
+  )
+
+top_complaint_by_borough <- week_data %>%
+  group_by(Borough, `Complaint Type`) %>%
+  summarise(count = n()) %>%
+  top_n(1, count) %>%        # Get the most common complaint type in each borough
+  ungroup()
+
+# Filter the main dataset to only include rows matching the most common complaint type per borough
+filtered_data <- week_data %>%
+  semi_join(top_complaint_by_borough, by = c("Borough", "Complaint Type"))
+
+
+plot1 <-ggplot(data = filtered_data) +
+  
+  geom_sf(data = nyc_boroughs, fill = NA, color = "black", size = 0.5) + 
+  
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), size = 2, alpha = 0.1) +
+  
+  geom_shadowtext(data = borough_centroids, aes(x = st_coordinates(geometry)[,1], 
+                                          y = st_coordinates(geometry)[,2], 
+                                          label = BoroName), 
+            color = "white", size = 4) +
+
+  theme_minimal() +
+  
+  labs(
+    title = "Most Common Complaint Type in Week Days",
+    color = "Complaint Type"
+  ) +
+  
+  guides(color = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+  
+  scale_color_viridis_d(option = "plasma") + 
+  
+  theme(axis.title = element_blank(), 
+        axis.text = element_blank(), 
+        axis.ticks = element_blank(),    
+        panel.grid = element_blank(),
+        legend.title = element_text(face = "bold"),
+        legend.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold"))
+
+
+ggsave("plots/week_complaints.png", plot = plot1)
+
+
+```
+
+
+
+
+```{r}
+nyc_boroughs <- st_read("/home/joaomonteiro/Desktop/trabalho_vd/borough_shape/nybb.shp")
+
+nyc_boroughs <- st_transform(nyc_boroughs, crs = 4326)
+
+borough_centroids <- st_centroid(nyc_boroughs)
+
+weekend_data <- september_data %>%
+  filter(
+    as.Date(`Created Date`) %in% as.Date(c("2016-9-3", "2016-9-4",
+                                           "2016-9-5", "2016-9-10",
+                                           "2016-9-11", "2016-9-17",
+                                           "2016-9-18","2016-9-24",
+                                           "2016-9-20", "2016-9-21")),
+    `Borough` != "UNSPECIFIED",
+    !is.na(Borough) & Borough != ""
+  )
+
+top_complaint_by_borough <- weekend_data %>%
+  group_by(Borough, `Complaint Type`) %>%
+  summarise(count = n()) %>%
+  top_n(1, count) %>%        # Get the most common complaint type in each borough
+  ungroup()
+
+# Filter the main dataset to only include rows matching the most common complaint type per borough
+filtered_data <- weekend_data %>%
+  semi_join(top_complaint_by_borough, by = c("Borough", "Complaint Type"))
+
+
+
+plot1 <- ggplot(data = filtered_data) +
+  
+  geom_sf(data = nyc_boroughs, fill = NA, color = "black", size = 0.5) +  
+  
+  geom_point(aes(x = Longitude, y = Latitude, color = `Complaint Type`), alpha = 0.1, size = 2) +
+  
+  geom_shadowtext(data = borough_centroids, aes(x = st_coordinates(geometry)[,1], 
+                                          y = st_coordinates(geometry)[,2], 
+                                          label = BoroName), 
+            color = "white", size = 4) +
+
+  theme_minimal() +
+  
+  labs(
+    title = "Most Common Complaint Type in Weekens and Holidays",
+    color = "Complaint Type", 
+    fontface = 'bold'
+    
+  ) +
+  
+  scale_color_viridis_d(option = "plasma") +
+  
+  guides(color = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+  
+  theme(axis.title = element_blank(), 
+        axis.text = element_blank(), 
+        axis.ticks = element_blank(),    
+        panel.grid = element_blank(),     
+        legend.title = element_text(face = "bold"),
+        legend.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold")) + 
+  
+  scale_color_manual(values="orange")
+
+
+  
+ggsave("plots/weekend_complaints.png", plot = plot1)
+
+
+
+
+```
 
 
 

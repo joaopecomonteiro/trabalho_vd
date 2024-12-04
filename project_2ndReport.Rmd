@@ -1,0 +1,1093 @@
+---
+title: "Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Limpar Dados
+rm(list = ls())
+
+# Install libraries
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(RColorBrewer)
+
+# Read data and choose columns
+data <- fread("C:/Users/diogo/OneDrive/Ambiente de Trabalho/FCUP - Data Science/1º Ano/1º Semestre/Visualização de Dados/Project/Dataset-20241021/NYC_311_Data_20241009/NYC_311_Data_20241009.csv", sep=";", fill=TRUE)
+
+data <- data[, .(Created_Date, Closed_Date, Agency, Incident_Address, Incident_Zip, Community_Board, Agency_Name, Complaint_Type, Descriptor, City, Borough, Longitude, Latitude)]
+```
+
+
+```{r}
+# Date Formation 
+data[, Created.Date := parse_date_time(Created_Date, orders = c("m/d/Y I:M:S p", "m/d/Y H:M"), tz = "UTC")]
+data[, Closed.Date := parse_date_time(Closed_Date, orders = c("m/d/Y I:M:S p", "m/d/Y H:M"), tz = "UTC")]
+
+data[, duration := as.period(difftime(Closed.Date, Created.Date))]
+
+data[, duration_formatted := paste(duration@year * 365 + duration@month * 30 + duration@day, 
+                                      "dias,", 
+                                      duration@hour, 
+                                      "horas,", 
+                                      duration@minute, 
+                                      "minutos")]
+
+head(data[, .(Created.Date, Closed.Date, duration_formatted)])
+
+#data[, 'Created_Date' := NULL]
+#data[, 'Closed_Date' := NULL]
+```
+
+```{r}
+data[, Time.Open := as.period(difftime(Closed.Date, Created.Date), units = "hours")]
+
+
+set(data, j = "Resolution.Time", value = round(as.numeric(difftime(data$Closed.Date, data$Created.Date), units = "hours"), 2))
+```
+
+
+```{r}
+# Adapt per types of complaint
+data$Complaint_Type.Clean <- tolower(data$Complaint_Type)
+
+data$Complaint_Type.Clean <- gsub(".*noise.*", "noise", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*highway sign.*", "highway sign", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*street sign.*", "street sign", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*dof property.*", "dof property", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*illegal.*", "illegal", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*advocate.*", "advocate", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*dof parking.*", "dof parking", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*water.*", "water", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*animal.*", "animal", data$Complaint_Type.Clean)
+
+data$Complaint_Type.Clean <- gsub(".*derelict.*", "derelict", data$Complaint_Type.Clean)
+
+sort(unique(data$Complaint_Type.Clean))
+```
+
+
+```{r}
+# Set Created.Date as Date and delete 09-30 day
+specific_date <- as.Date("2016-09-30")
+data <- data %>%
+  filter(Created.Date != specific_date)
+data <- data %>%
+  filter(Created.Date != specific_date)
+
+data <- data %>%
+  mutate(Created.Date = as.Date(Created.Date))
+
+
+```
+
+```{r}
+# Classificar os dias como Dia de Semana ou Fim de Semana
+data <- data %>%
+  mutate(Day_Type = case_when(
+    Created.Date == as.Date("2016-09-05") ~ "Weekend/Holidays",  # Inclui o feriado como Fim de Semana
+    wday(Created.Date) %in% c(1, 7) ~ "Weekend/Holidays",       # Domingo e Sábado
+    TRUE ~ "Weekdays"                                     # Todos os outros dias
+  ))
+```
+
+
+```{r}
+# Function to calculate outliers for a given grouping variable
+find_outliers <- function(data, group_var, target_var) {
+  data %>%
+    group_by({{ group_var }}) %>%
+    summarise(
+      Q1 = quantile({{ target_var }}, 0.25, na.rm = TRUE),
+      Q3 = quantile({{ target_var }}, 0.75, na.rm = TRUE),
+      IQR = Q3 - Q1
+    ) %>%
+    mutate(Lower_Bound = Q1 - 1.5 * IQR, Upper_Bound = Q3 + 1.5 * IQR) %>%
+    right_join(data, by = as.character(rlang::ensym(group_var))) %>%
+    filter({{ target_var }} < Lower_Bound | {{ target_var }} > Upper_Bound) %>%
+    select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))  # Keep only relevant columns
+}
+
+# Identify outliers for each category
+outliers_borough <- find_outliers(data, Borough, Resolution.Time)
+outliers_complaint <- find_outliers(data, Complaint_Type, Resolution.Time)
+outliers_complaintclean <- find_outliers(data, Complaint_Type.Clean, Resolution.Time)
+outliers_day_type <- find_outliers(data, Day_Type, Resolution.Time)
+
+```
+
+```{r}
+# Identificar os dados normais (não outliers)
+normals_borough <- anti_join(data, outliers_borough, by = c("Borough", "Resolution.Time"))
+normals_complaint <- anti_join(data, outliers_complaint, by = c("Complaint_Type", "Resolution.Time"))
+normals_complaintclean <- anti_join(data, outliers_complaintclean, by = c("Complaint_Type.Clean", "Resolution.Time"))
+normals_day_type <- anti_join(data, outliers_day_type, by = c("Day_Type", "Resolution.Time"))
+
+# Contar os outliers e normais por categoria
+borough_data <- bind_rows(
+  outliers_borough %>% mutate(Category = "Outlier"),
+  normals_borough %>% mutate(Category = "Normal")
+) %>%
+  group_by(Borough, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+complaint_type_data <- bind_rows(
+  outliers_complaint %>% mutate(Category = "Outlier"),
+  normals_complaint %>% mutate(Category = "Normal")
+) %>%
+  group_by(Complaint_Type, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+complaint_clean_data <- bind_rows(
+  outliers_complaintclean %>% mutate(Category = "Outlier"),
+  normals_complaintclean %>% mutate(Category = "Normal")
+) %>%
+  group_by(Complaint_Type.Clean, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+day_type_data <- bind_rows(
+  outliers_day_type %>% mutate(Category = "Outlier"),
+  normals_day_type %>% mutate(Category = "Normal")
+) %>%
+  group_by(Day_Type, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+```
+
+
+```{r}
+# Gráfico: Número total de outliers por Borough
+ggplot(outliers_borough, aes(x = Borough, fill = Borough)) +
+  geom_bar() +
+  labs(
+    title = "Número de Outliers por Borough",
+    x = "Borough",
+    y = "Número de Outliers"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set3")
+
+```
+
+```{r}
+# Gráfico: Número total de outliers e observações normais por Borough
+ggplot(borough_data, aes(x = Borough, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Outliers e Observações Normais por Borough",
+    x = "Borough",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Outlier" = "red", "Normal" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+```{r}
+# Gráfico: Número total de outliers e observações normais por Complaint Type (Top 10)
+top10_complaint_types <- complaint_type_data %>%
+  group_by(Complaint_Type) %>%
+  summarise(Count = sum(Count)) %>%
+  slice_max(Count, n = 10)
+
+complaint_type_top10_data <- complaint_type_data %>%
+  filter(Complaint_Type %in% top10_complaint_types$Complaint_Type)
+
+ggplot(complaint_type_top10_data, aes(x = Complaint_Type, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Outliers e Observações Normais por Tipo de Queixa (Top 10)",
+    x = "Tipo de Queixa",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Outlier" = "red", "Normal" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+# Selecionar os 10 tipos de queixa com mais outliers
+top10_complaint_types <- outliers_complaint %>%
+  count(Complaint_Type, sort = TRUE) %>%
+  slice_max(n, n = 10)
+
+# Filtrar os outliers para incluir apenas os 10 principais
+filtered_outliers_complaint <- outliers_complaint %>%
+  filter(Complaint_Type %in% top10_complaint_types$Complaint_Type)
+
+# Gráfico
+ggplot(filtered_outliers_complaint, aes(x = Complaint_Type, fill = Complaint_Type)) +
+  geom_bar() +
+  labs(
+    title = "Número de Outliers por Tipo de Queixa (Top 10)",
+    x = "Tipo de Queixa",
+    y = "Número de Outliers"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set3")
+
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Criar o gráfico boxplot para os top 10 tipos de queixa
+ggplot(filtered_outliers_complaint, aes(x = Complaint_Type, y = Resolution.Time, fill = Complaint_Type)) +
+  geom_boxplot(outlier.color = "red", outlier.shape = 16, outlier.size = 2) +
+  labs(
+    title = "Boxplot: Top 10 Tipos de Queixa (Outliers)",
+    x = "Tipo de Queixa",
+    y = "Resolution Time (horas)"
+  ) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "none"
+  )
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(ggplot2)
+library(dplyr)
+
+# Filtrar os dados para o Complaint Type "Building/Use"
+building_use_data1 <- data %>%
+  filter(Complaint_Type == "Building/Use")
+
+building_use_data2 <- filtered_outliers_complaint %>%
+  filter(Complaint_Type == "Building/Use")
+
+# Combinar os datasets, categorizando como "All" e "Outliers"
+building_use_data <- bind_rows(
+  building_use_data1 %>% mutate(Category = "All"),
+  building_use_data2 %>% mutate(Category = "Outliers")
+)
+
+# Criar o boxplot para o Resolution Time
+ggplot(building_use_data, aes(x = Category, y = Resolution.Time)) +
+  geom_boxplot(aes(fill = Category), outlier.color = "red", outlier.shape = 16) +
+  labs(
+    title = "Boxplot de Resolution Type para Building/Use",
+    x = "Categoria",
+    y = "Resolution Type (em horas ou outra unidade)"
+  ) +
+  scale_fill_manual(values = c("All" = "steelblue", "Outliers" = "orange")) +
+  theme_minimal()
+
+
+```
+
+```{r}
+library(sf)
+library(dplyr)
+library(ggplot2)
+
+# Carregar os dados dos boroughs
+nyc_boroughs <- st_read("C:/Users/diogo/OneDrive/Ambiente de Trabalho/FCUP - Data Science/1º Ano/1º Semestre/Visualização de Dados/Project/nybb.shp") %>%
+  st_transform(crs = 4326)
+
+# 1. Filtrar os dados para o tipo de queixa "Building/Use"
+building_use_outliers <- filtered_outliers_complaint %>%
+  filter(Complaint_Type == "Building/Use") %>%
+  filter(!is.na(Latitude) & !is.na(Longitude)) %>% # Remover dados sem coordenadas
+  filter(Borough != "Unspecified")               # Remover Boroughs não especificados
+
+# 2. Ajustar o shapefile para incluir informações sobre "Building/Use"
+nyc_boroughs <- nyc_boroughs %>%
+  mutate(Most_Common_Building_Use_Outlier = ifelse(
+    BoroName %in% building_use_outliers$Borough, "Building/Use", NA
+  ))
+
+# 3. Criar o mapa com as queixas de "Building/Use"
+ggplot() +
+  # Mapa dos boroughs
+  geom_sf(data = nyc_boroughs, color = "black", size = 0.2) +
+  # Adicionar os pontos das queixas "Building/Use"
+  geom_point(data = building_use_outliers, 
+             aes(x = Longitude, y = Latitude), 
+             color = "blue", size = 2, alpha = 0.6) +
+  # Customização da escala e rótulos
+  labs(
+    title = "Mapa de Outliers de 'Building/Use' em New York",
+    fill = "Building/Use Outliers",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_minimal() 
+  
+```
+
+
+```{r}
+# Selecionar os 10 tipos de queixa com mais outliers
+top_10_complaints <- outliers_complaint %>%
+  count(Complaint_Type, sort = TRUE) %>%
+  slice_head(n = 10) %>%
+  pull(Complaint_Type)
+
+# Filtrar apenas os tipos no top 10
+outliers_complaint_top10 <- outliers_complaint %>%
+  filter(Complaint_Type %in% top_10_complaints)
+
+# Gráfico
+ggplot(outliers_complaint_top10, aes(x = Complaint_Type, fill = Borough)) +
+  geom_bar(position = "fill") +
+  labs(
+    title = "Proporção de Outliers por Tipo de Queixa (Top 10)",
+    x = "Tipo de Queixa",
+    y = "Proporção de Outliers"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_brewer(palette = "Set2")
+
+```
+
+```{r}
+# 1. Filtrar os dados para o tipo de queixa "Homeless Person Assistance"
+homeless_use_outliers <- filtered_outliers_complaint %>%
+  filter(Complaint_Type == "Homeless Person Assistance") %>%
+  filter(!is.na(Latitude) & !is.na(Longitude)) %>% # Remover dados sem coordenadas
+  filter(Borough != "Unspecified")               # Remover Boroughs não especificados
+
+# 2. Ajustar o shapefile para incluir informações sobre "Homeless Person Assistance"
+nyc_boroughs <- nyc_boroughs %>%
+  mutate(Most_Common_Building_Use_Outlier = ifelse(
+    BoroName %in% building_use_outliers$Borough, "Homeless Person Assistance", NA
+  ))
+
+# 3. Criar o mapa com as queixas de "Homeless Person Assistance"
+ggplot() +
+  # Mapa dos boroughs
+  geom_sf(data = nyc_boroughs, color = "black", size = 0.2) +
+  # Adicionar os pontos das queixas "Building/Use"
+  geom_point(data = homeless_use_outliers, 
+             aes(x = Longitude, y = Latitude), 
+             color = "blue", size = 2, alpha = 0.6) +
+  # Customização da escala e rótulos
+  labs(
+    title = "Mapa de Outliers de 'Homeless Person Assistance' em New York",
+    fill = "Homeless Person Assistance Outliers",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_minimal() 
+```
+
+
+```{r}
+# Filtrar os dados para "Homeless Person Assistance"
+homeless_data_resolution <- data %>%
+  filter(Complaint_Type == "Homeless Person Assistance") %>%
+  group_by(Borough)
+
+# Criar o gráfico de boxplots
+ggplot(homeless_data_resolution, aes(x = Borough, y = Resolution.Time, fill = Borough)) +
+  geom_boxplot(outlier.color = "red", outlier.shape = 16, alpha = 0.7) +
+  labs(
+    title = "Distribuição do Resolution Time para 'Homeless Person Assistance' por Borough",
+    x = "Borough",
+    y = "Resolution Time (horas)"
+  ) +
+  scale_y_continuous(limits = c(0, 450)) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  scale_fill_brewer(palette = "Set3")
+
+
+```
+
+
+```{r}
+# Visualização para Complaint_Type.Clean (Top 10)
+top10_complaintclean_types <- complaint_clean_data %>%
+  group_by(Complaint_Type.Clean) %>%
+  summarise(Count = sum(Count)) %>%
+  slice_max(Count, n = 10)
+
+complaint_clean_top10_data <- complaint_clean_data %>%
+  filter(Complaint_Type.Clean %in% top10_complaintclean_types$Complaint_Type.Clean)
+
+ggplot(complaint_clean_top10_data, aes(x = Complaint_Type.Clean, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Outliers e Observações Normais por Tipo de Queixa (Top 10)",
+    x = "Tipo de Queixa",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Outlier" = "red", "Normal" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+```{r}
+# Selecionar os 10 tipos de queixa limpos com mais outliers
+top10_complaintclean_types <- outliers_complaintclean %>%
+  count(Complaint_Type.Clean, sort = TRUE) %>%
+  slice_max(n, n = 10)
+
+# Filtrar os outliers para incluir apenas os 10 principais
+filtered_outliers_complaintclean <- outliers_complaintclean %>%
+  filter(Complaint_Type.Clean %in% top10_complaintclean_types$Complaint_Type.Clean)
+
+# Criar o gráfico
+ggplot(filtered_outliers_complaintclean, aes(x = Complaint_Type.Clean, fill = Complaint_Type.Clean)) +
+  geom_bar() +
+  labs(
+    title = "Número de Outliers por Tipo de Queixa (Top 10)",
+    x = "Tipo de Queixa Limpo",
+    y = "Número de Outliers"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+```{r}
+# Selecionar os 10 tipos de queixa com mais outliers
+top_10_complaints_clean <- outliers_complaintclean %>%
+  count(Complaint_Type.Clean, sort = TRUE) %>%
+  slice_head(n = 10) %>%
+  pull(Complaint_Type.Clean)
+
+# Filtrar apenas os tipos no top 10
+outliers_complaintclean_top10 <- outliers_complaintclean %>%
+  filter(Complaint_Type.Clean %in% top_10_complaints_clean)
+
+# Gráfico
+ggplot(outliers_complaintclean_top10, aes(x = Created.Date, y = Resolution.Time, color = Complaint_Type.Clean)) +
+  geom_point(alpha = 0.7) +
+  labs(
+    title = "Distribuição Temporal de Outliers (Top 10 Tipos de Queixa)",
+    x = "Data",
+    y = "Tempo de Resolução"
+  ) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Paired")
+
+
+```
+
+```{r}
+# Visualização para Day_Type
+ggplot(day_type_data, aes(x = Day_Type, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Outliers e Observações Normais por Tipo de Dia",
+    x = "Tipo de Dia",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Outlier" = "red", "Normal" = "steelblue"))
+```
+
+
+```{r}
+# Número de Outliers por Day_Type
+ggplot(outliers_day_type, aes(x = Day_Type, fill = Day_Type)) +
+  geom_bar() +
+  labs(
+    title = "Número de Outliers por Tipo de Dia",
+    x = "Tipo de Dia",
+    y = "Número de Outliers"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Weekend/Holidays" = "purple", "Weekdays" = "lightblue"))
+
+```
+
+
+```{r}
+ggplot(outliers_day_type, aes(x = Day_Type, y = Resolution.Time, fill = Day_Type)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(color = "black", size = 0.5, alpha = 0.7) +
+  labs(
+    title = "Distribuição de Outliers de Tempo de Resolução por Tipo de Dia",
+    x = "Tipo de Dia",
+    y = "Tempo de Resolução"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Weekend/Holidays" = "coral", "Weekdays" = "steelblue"))
+
+```
+
+
+```{r}
+#install.packages("ggridges") 
+library(ggridges)
+
+
+# Combinar os datasets
+combined_outliers <- bind_rows(
+  outliers_borough %>% mutate(Group = "Borough"),
+  outliers_complaint %>% mutate(Group = "Complaint_Type"),
+  outliers_complaintclean %>% mutate(Group = "Complaint_Type.Clean"),
+  outliers_day_type %>% mutate(Group = "Day_Type")
+)
+
+# Heatmap de densidade com limite no eixo X
+ggplot(combined_outliers, aes(x = Resolution.Time, y = Group, fill = ..density..)) +
+  geom_density_ridges_gradient(scale = 2, rel_min_height = 0.01) +
+  labs(
+    title = "Heatmap de Densidade de Outliers em Diferentes Agrupamentos",
+    x = "Tempo de Resolução",
+    y = "Agrupamento"
+  ) +
+  xlim(0, 12500) +  # Limite do eixo X
+  theme_minimal() +
+  scale_fill_viridis_c()
+
+
+
+```
+
+
+```{r}
+# Function to calculate outliers for a given grouping variable
+find_ext_outliers <- function(data, group_var, target_var) {
+  data %>%
+    group_by({{ group_var }}) %>%
+    summarise(
+      Q1 = quantile({{ target_var }}, 0.25, na.rm = TRUE),
+      Q3 = quantile({{ target_var }}, 0.75, na.rm = TRUE),
+      IQR = Q3 - Q1
+    ) %>%
+    mutate(Lower_Bound = Q1 - 3 * IQR, Upper_Bound = Q3 + 3 * IQR) %>%
+    right_join(data, by = as.character(rlang::ensym(group_var))) %>%
+    filter({{ target_var }} < Lower_Bound | {{ target_var }} > Upper_Bound) %>%
+    select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))  # Keep only relevant columns
+}
+
+# Identify outliers for each category
+ext_outliers_borough <- find_ext_outliers(data, Borough, Resolution.Time)
+ext_outliers_complaint <- find_ext_outliers(data, Complaint_Type, Resolution.Time)
+ext_outliers_complaintclean <- find_ext_outliers(data, Complaint_Type.Clean, Resolution.Time)
+ext_outliers_day_type <- find_ext_outliers(data, Day_Type, Resolution.Time)
+
+
+# Função para identificar outliers com base em diferentes condições
+
+find_outliers_custom_conditions <- function(data, group_var, target_var, lower_limit) {
+  data %>%
+    group_by({{ group_var }}) %>%
+    summarise(
+      Q1 = quantile({{ target_var }}, 0.25, na.rm = TRUE),
+      Q3 = quantile({{ target_var }}, 0.75, na.rm = TRUE),
+      IQR = Q3 - Q1
+    ) %>%
+    mutate(Lower_Bound = Q1 - 3 * IQR, Upper_Bound = Q3 + 3 * IQR) %>%
+    right_join(data, by = as.character(rlang::ensym(group_var))) %>%
+    filter({{ target_var }} > lower_limit) %>%  # Aplica a condição para detectar valores acima do limite
+    select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))  # Remove colunas adicionais
+}
+
+
+# Identificar outliers para valores superiores a 8760 - 1 ano
+outliers_borough_8760 <- find_outliers_custom_conditions(data, Borough, Resolution.Time, 8760)
+outliers_complaint_8760 <- find_outliers_custom_conditions(data, Complaint_Type, Resolution.Time, 8760)
+outliers_complaintclean_8760 <- find_outliers_custom_conditions(data, Complaint_Type.Clean, Resolution.Time, 8760)
+outliers_day_type_8760 <- find_outliers_custom_conditions(data, Day_Type, Resolution.Time, 8760)
+
+```
+
+```{r}
+# Contar os outliers e normais por categoria
+borough_data_ext <- bind_rows(
+  ext_outliers_borough %>% mutate(Category = "Extreme Outlier"),
+  outliers_borough %>% mutate(Category = "Normal Outlier")
+) %>%
+  group_by(Borough, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+complaint_type_data_ext <- bind_rows(
+  ext_outliers_complaint %>% mutate(Category = "Extreme Outlier"),
+  outliers_complaint %>% mutate(Category = "Normal Outlier")
+) %>%
+  group_by(Complaint_Type, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+complaint_clean_data_ext <- bind_rows(
+  ext_outliers_complaintclean %>% mutate(Category = "Extreme Outlier"),
+  outliers_complaintclean %>% mutate(Category = "Normal Outlier")
+) %>%
+  group_by(Complaint_Type.Clean, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+day_type_data_ext <- bind_rows(
+  ext_outliers_day_type %>% mutate(Category = "Extreme Outlier"),
+  outliers_day_type %>% mutate(Category = "Normal Outlier")
+) %>%
+  group_by(Day_Type, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+# Contar os outliers e normais por categoria - 1 ano
+borough_data_8760 <- bind_rows(
+  outliers_borough_8760 %>% mutate(Category = "Observation > 1 year"),
+  outliers_borough %>% mutate(Category = "Normal Outlier")
+) %>%
+  group_by(Borough, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+complaint_type_data_8760 <- bind_rows(
+  outliers_complaint_8760 %>% mutate(Category = "Observation > 1 year"),
+  outliers_complaint %>% mutate(Category = "Normal Outlier")
+) %>%
+  group_by(Complaint_Type, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+complaint_clean_data_8760 <- bind_rows(
+  outliers_complaintclean_8760 %>% mutate(Category = "Observation > 1 year"),
+  outliers_complaintclean %>% mutate(Category = "Normal Outlier")
+) %>%
+  group_by(Complaint_Type.Clean, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+
+day_type_data_8760 <- bind_rows(
+  outliers_day_type_8760 %>% mutate(Category = "Observation > 1 year"),
+  outliers_day_type %>% mutate(Category = "Normal Outlier")
+) %>%
+  group_by(Day_Type, Category) %>%
+  summarise(Count = n(), .groups = "drop")
+```
+
+
+```{r}
+# Visualização para Borough
+
+# Reordenar os fatores para inverter a ordem
+borough_data_ext$Category <- factor(borough_data_ext$Category, levels = c("Normal Outlier", "Extreme Outlier"))
+
+ggplot(borough_data_ext, aes(x = Borough, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Extreme Outliers vs Normal Outliers por Borough",
+    x = "Borough",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Extreme Outlier" = "red", "Normal Outlier" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+ggplot(borough_data_8760, aes(x = Borough, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Outliers vs Resolution Time > 1 year por Borough",
+    x = "Borough",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Observation > 1 year" = "red", "Normal Outlier" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# Filtrar os top 10 Complaint Types com mais queixas
+top10_complaint_types_ext <- complaint_type_data_ext %>%
+  group_by(Complaint_Type) %>%
+  summarise(Count = sum(Count)) %>%
+  slice_max(Count, n = 10)
+
+# Agora, filtrar os dados originais para apenas os top 10
+complaint_type_data_ext_top10 <- complaint_type_data_ext %>%
+  filter(Complaint_Type %in% top10_complaint_types_ext$Complaint_Type)
+
+# Visualização
+
+# Reordenar os fatores para inverter a ordem
+complaint_type_data_ext$Category <- factor(complaint_type_data_ext$Category, levels = c("Normal Outlier", "Extreme Outlier"))
+
+ggplot(complaint_type_data_ext_top10, aes(x = Complaint_Type, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Extreme Outliers vs Normal Outliers por Complaint Type",
+    x = "Complaint Type",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Extreme Outlier" = "red", "Normal Outlier" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+# Filtrar os top 10 Complaint Types com mais queixas
+top10_complaint_types_8760 <- complaint_type_data_8760 %>%
+  group_by(Complaint_Type) %>%
+  summarise(Count = sum(Count)) %>%
+  slice_max(Count, n = 10)
+
+# Agora, filtrar os dados originais para apenas os top 10
+complaint_type_data_8760_top10 <- complaint_type_data_8760 %>%
+  filter(Complaint_Type %in% top10_complaint_types_8760$Complaint_Type)
+
+# Visualização
+ggplot(complaint_type_data_8760_top10, aes(x = Complaint_Type, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Outliers vs Resolution Time > 8760 por Complaint Type",
+    x = "Complaint Type",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Observation > 1 year" = "red", "Normal Outlier" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r}
+# Filtrar os top 10 Complaint Types com mais queixas
+top10_complaint_clean_ext <- complaint_clean_data_ext %>%
+  group_by(Complaint_Type.Clean) %>%
+  summarise(Count = sum(Count)) %>%
+  slice_max(Count, n = 10)
+
+# Agora, filtrar os dados originais para apenas os top 10
+complaint_clean_data_ext_top10 <- complaint_clean_data_ext %>%
+  filter(Complaint_Type.Clean %in% top10_complaint_clean_ext$Complaint_Type.Clean)
+
+# Visualização
+
+# Reordenar os fatores para inverter a ordem
+complaint_clean_data_ext$Category <- factor(complaint_clean_data_ext$Category, levels = c("Normal Outlier", "Extreme Outlier"))
+
+ggplot(complaint_clean_data_ext_top10, aes(x = Complaint_Type.Clean, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Extreme Outliers vs Normal Outliers por Complaint Type Clean",
+    x = "Complaint Type Clean",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Normal Outlier" = "steelblue", "Extreme Outlier" = "red")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+# Filtrar os top 10 Complaint Types com mais queixas
+top10_complaint_clean_8760 <- complaint_clean_data_8760 %>%
+  group_by(Complaint_Type.Clean) %>%
+  summarise(Count = sum(Count)) %>%
+  slice_max(Count, n = 10)
+
+# Agora, filtrar os dados originais para apenas os top 10
+complaint_clean_data_8760_top10 <- complaint_clean_data_8760 %>%
+  filter(Complaint_Type.Clean %in% top10_complaint_clean_8760$Complaint_Type.Clean)
+
+# Visualização
+ggplot(complaint_clean_data_8760_top10, aes(x = Complaint_Type.Clean, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Outliers vs Resolution Time > 8760 por Complaint Type Clean",
+    x = "Complaint Type Clean",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Observation > 1 year" = "red", "Normal Outlier" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# Visualização para Day Type
+
+# Reordenar os fatores para inverter a ordem
+day_type_data_ext$Category <- factor(day_type_data_ext$Category, levels = c("Normal Outlier", "Extreme Outlier"))
+
+ggplot(day_type_data_ext, aes(x = Day_Type, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Extreme Outliers vs Normal Outliers por Borough",
+    x = "Day Type",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Extreme Outlier" = "red", "Normal Outlier" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+ggplot(day_type_data_8760, aes(x = Day_Type, y = Count, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Número de Outliers vs Resolution Time > 1 year por Borough",
+    x = "Day Type",
+    y = "Número de Observações"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Observation > 1 year" = "red", "Normal Outlier" = "steelblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+```{r}
+library(sf)
+library(dplyr)
+library(ggplot2)
+
+# Carregar os dados dos boroughs
+nyc_boroughs <- st_read("C:/Users/diogo/OneDrive/Ambiente de Trabalho/FCUP - Data Science/1º Ano/1º Semestre/Visualização de Dados/Project/nybb.shp") %>%
+  st_transform(crs = 4326)
+
+# Passo 1: Limpar e verificar os nomes nos dados de outliers
+# Remover Boroughs não especificados
+filtered_outliers_complaint <- filtered_outliers_complaint %>%
+  filter(Borough != "Unspecified")
+
+ext_outliers_complaint <- ext_outliers_complaint %>%
+  filter(Borough != "Unspecified")
+
+# Padronizar nomes (se necessário, ajuste manualmente caso os nomes estejam diferentes)
+filtered_outliers_complaint$Borough <- tolower(filtered_outliers_complaint$Borough)
+ext_outliers_complaint$Borough <- tolower(ext_outliers_complaint$Borough)
+nyc_boroughs$BoroName <- tolower(nyc_boroughs$BoroName)
+
+# Passo 2: Determinar os tipos de outliers mais comuns por Borough
+outliers_by_borough <- filtered_outliers_complaint %>%
+  group_by(Borough, Complaint_Type) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  arrange(Borough, desc(Count)) %>%
+  group_by(Borough) %>%
+  slice_max(Count, n = 1) %>%
+  rename(Most_Common_Outlier = Complaint_Type)
+
+extreme_outliers_by_borough <- ext_outliers_complaint %>%
+  group_by(Borough, Complaint_Type) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  arrange(Borough, desc(Count)) %>%
+  group_by(Borough) %>%
+  slice_max(Count, n = 1) %>%
+  rename(Most_Common_Extreme_Outlier = Complaint_Type)
+
+# Passo 3: Mesclar as informações com o shapefile
+# A mesclagem agora será feita com os nomes padronizados
+nyc_boroughs <- nyc_boroughs %>%
+  left_join(outliers_by_borough, by = c("BoroName" = "Borough")) %>%
+  left_join(extreme_outliers_by_borough, by = c("BoroName" = "Borough"))
+
+# Verificar se ainda há valores N/A (possível problema com correspondências)
+print(nyc_boroughs)
+
+
+# Passo 4: Criar os gráficos
+
+# Paleta de cores consistente para ambos os gráficos
+# Combinar os tipos de outliers e extreme outliers em um vetor único
+all_complaint_types <- unique(c(
+  nyc_boroughs$Most_Common_Outlier,
+  nyc_boroughs$Most_Common_Extreme_Outlier
+))
+
+# Criar uma paleta de cores personalizada (usar RColorBrewer ou uma função de cores)
+library(RColorBrewer)
+set.seed(42)  # Garantir consistência
+color_palette <- setNames(brewer.pal(length(all_complaint_types), "Set3"), all_complaint_types)
+
+# Mapa 1: Outliers mais comuns
+map_outliers <- ggplot(data = nyc_boroughs) +
+  geom_sf(aes(fill = Most_Common_Outlier), color = "black", size = 0.3) +
+  scale_fill_manual(values = color_palette, na.value = "grey80") +
+  labs(
+    title = "Outliers Mais Comuns por Borough",
+    fill = "Tipo de Outlier"
+  ) +
+  theme_minimal()
+
+# Mapa 2: Extreme outliers mais comuns
+map_extreme_outliers <- ggplot(data = nyc_boroughs) +
+  geom_sf(aes(fill = Most_Common_Extreme_Outlier), color = "black", size = 0.3) +
+  scale_fill_manual(values = color_palette, na.value = "grey80") +
+  labs(
+    title = "Extreme Outliers Mais Comuns por Borough",
+    fill = "Tipo de Extreme Outlier"
+  ) +
+  theme_minimal()
+
+# Exibir os mapas
+print(map_outliers)
+print(map_extreme_outliers)
+
+
+# Determinar o tipo de outlier mais comum por borough para >1 ano
+common_outlier_8760 <- outliers_complaint_8760 %>%
+  group_by(Borough, Complaint_Type) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  arrange(Borough, desc(Count)) %>%
+  filter(!is.na(Borough)) %>%
+  group_by(Borough) %>%
+  slice_max(Count, n = 1)
+
+# Padronizar nomes dos boroughs em common_outlier_8760
+common_outlier_8760$Borough <- tolower(common_outlier_8760$Borough)
+
+# Adicionar a informação ao shapefile
+nyc_boroughs <- nyc_boroughs %>%
+  left_join(common_outlier_8760, by = c("BoroName" = "Borough")) %>%
+  rename(Most_Common_Outlier_1Year = Complaint_Type)
+
+# Paleta de cores consistente para todos os gráficos
+all_complaint_types <- unique(c(
+  nyc_boroughs$Most_Common_Outlier,
+  nyc_boroughs$Most_Common_Extreme_Outlier,
+  nyc_boroughs$Most_Common_Outlier_1Year
+))
+
+# Criar a paleta de cores
+library(RColorBrewer)
+set.seed(42)
+color_palette <- setNames(brewer.pal(length(all_complaint_types), "Set3"), all_complaint_types)
+
+# Mapa 3: Outliers com mais de 1 ano
+map_outliers_1year <- ggplot(data = nyc_boroughs) +
+  geom_sf(aes(fill = Most_Common_Outlier_1Year), color = "black", size = 0.3) +
+  scale_fill_manual(values = color_palette, na.value = "grey80") +
+  labs(
+    title = "Resolution Type com Mais de 1 Ano por Borough",
+    fill = "Resolution Type (> 1 Ano)"
+  ) +
+  theme_minimal()
+
+# Exibir o mapa
+print(map_outliers_1year)
+
+```
+
+```{r}
+# 1. Selecionar os Top 5 Tipos de Queixa para Cada Cenário
+# Outliers gerais
+top5_complaints_outliers <- outliers_complaint %>%
+  count(Complaint_Type, sort = TRUE) %>%
+  slice_max(n, n = 5) %>%
+  rename(Most_Common_Outlier = Complaint_Type)
+
+# Outliers extremos
+top5_complaints_extreme_outliers <- ext_outliers_complaint %>%
+  count(Complaint_Type, sort = TRUE) %>%
+  slice_max(n, n = 5) %>%
+  rename(Most_Common_Extreme_Outlier = Complaint_Type)
+
+# Outliers com mais de 1 ano
+top5_complaints_outliers_8760 <- outliers_complaint_8760 %>%
+  count(Complaint_Type, sort = TRUE) %>%
+  slice_max(n, n = 5) %>%
+  rename(Most_Common_1year = Complaint_Type)
+
+# 2. Filtrar os Dados para os Top 5 Tipos de Queixa
+# Outliers gerais
+outliers_top5 <- outliers_complaint %>%
+  filter(Complaint_Type %in% top5_complaints_outliers$Most_Common_Outlier) %>%
+  filter(!is.na(Latitude) & !is.na(Longitude)) %>%
+  filter(Borough != "Unspecified")
+
+# Outliers extremos
+extreme_outliers_top5 <- ext_outliers_complaint %>%
+  filter(Complaint_Type %in% top5_complaints_extreme_outliers$Most_Common_Extreme_Outlier) %>%
+  filter(!is.na(Latitude) & !is.na(Longitude)) %>%
+  filter(Borough != "Unspecified")
+
+# Outliers com mais de 1 ano
+outliers_top5_8760 <- outliers_complaint_8760 %>%
+  filter(Complaint_Type %in% top5_complaints_outliers_8760$Most_Common_1year) %>%
+  filter(!is.na(Latitude) & !is.na(Longitude)) %>%
+  filter(Borough != "Unspecified")
+
+# 3. Ajustar o Shapefile com os Dados dos Boroughs
+# Outliers gerais
+nyc_boroughs_outliers <- nyc_boroughs %>%
+  left_join(outliers_top5, by = c("BoroName" = "Borough"))
+
+# Outliers extremos
+ext_outliers_summary <- ext_outliers_complaint %>%
+  group_by(Borough) %>%
+  summarise(
+    Most_Common_Extreme_Outlier = Complaint_Type[which.max(table(Complaint_Type))],
+    Total_Outliers = n()
+  )
+
+nyc_boroughs_extreme_outliers <- nyc_boroughs %>%
+  left_join(ext_outliers_summary, by = c("BoroName" = "Borough"))
+
+# Outliers com mais de 1 ano
+nyc_boroughs_outliers_8760 <- nyc_boroughs %>%
+  left_join(outliers_top5_8760, by = c("BoroName" = "Borough"))
+
+# 4. Criar os Mapas
+# Criar uma paleta de cores para todos os tipos de queixa
+all_complaint_types <- unique(c(
+  top5_complaints_outliers$Most_Common_Outlier,
+  top5_complaints_extreme_outliers$Most_Common_Extreme_Outlier,
+  top5_complaints_outliers_8760$Most_Common_1year
+))
+
+# Gerar paleta de cores dinâmica
+library(RColorBrewer)
+color_palette <- setNames(brewer.pal(n = length(all_complaint_types), "Paired"), all_complaint_types)
+
+# Mapas
+# Mapa de Outliers Gerais
+map_outliers <- ggplot() +
+  geom_sf(data = nyc_boroughs_outliers, color = "black", size = 0.2) +
+  geom_point(data = outliers_top5, aes(x = Longitude, y = Latitude, color = Complaint_Type), size = 2, alpha = 0.6) +
+  labs(
+    title = "Mapa dos Top 5 Outliers em New York",
+    color = "Tipos de Queixa (Top 5)"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = color_palette)
+
+# Mapa de Outliers Extremos
+map_extreme_outliers <- ggplot() +
+  geom_sf(data = nyc_boroughs_extreme_outliers, color = "black", size = 0.2) +
+  geom_point(data = extreme_outliers_top5, aes(x = Longitude, y = Latitude, color = Complaint_Type), size = 2, alpha = 0.6) +
+  labs(
+    title = "Mapa dos Top 5 Outliers Extremos em New York",
+    color = "Tipos de Queixa (Top 5)"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = color_palette)
+
+# Mapa de Outliers com Mais de 1 Ano
+map_outliers_8760 <- ggplot() +
+  geom_sf(data = nyc_boroughs_outliers_8760, color = "black", size = 0.2) +
+  geom_point(data = outliers_top5_8760, aes(x = Longitude, y = Latitude, color = Complaint_Type), size = 2, alpha = 0.6) +
+  labs(
+    title = "Mapa dos Top 5 Outliers com Mais de 1 Ano em New York",
+    color = "Tipos de Queixa (Top 5)"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = color_palette)
+
+# 5. Mostrar os Mapas
+print(map_outliers)
+print(map_extreme_outliers)
+print(map_outliers_8760)
+
+```

@@ -228,7 +228,7 @@ map_outliers <- ggplot() +
   geom_point(data = outliers_top5, aes(x = Longitude, y = Latitude, color = Complaint.Type), size = 2, alpha = 0.4) +
   labs(
     title = "Top 5 outliers in New York map",
-    color = "Complaint type (Top 5)"
+    color = "Complaint type"
   ) +
   theme_minimal() +
   scale_color_manual(values = color_palette)
@@ -238,7 +238,7 @@ map_extreme_outliers <- ggplot() +
   geom_point(data = extreme_outliers_top5, aes(x = Longitude, y = Latitude, color = Complaint.Type), size = 2, alpha = 0.4) +
   labs(
     title = "Top 5 extreme outliers in New York map",
-    color = "Complaint type (Top 5)"
+    color = "Complaint type"
   ) +
   theme_minimal() +
   scale_color_manual(values = color_palette)
@@ -248,7 +248,7 @@ map_outliers_8760 <- ggplot() +
   geom_point(data = outliers_top5_8760, aes(x = Longitude, y = Latitude, color = Complaint.Type), size = 2, alpha = 0.4) +
   labs(
     title = "Top 5 observations with more than 1 year resolution time in New York map",
-    color = "Complaint type (Top 5)"
+    color = "Complaint type"
   ) +
   theme_minimal() +
   scale_color_manual(values = color_palette)
@@ -311,7 +311,7 @@ map_outliers2 <- ggplot(data = nyc_boroughs) +
   scale_fill_manual(values = color_palette, na.value = "grey80") +
   labs(
     title = "Most common outlier by borough",
-    fill = "Tipo de Outlier"
+    fill = "Complaint type"
   ) +
   theme_minimal()
 
@@ -321,7 +321,7 @@ map_extreme_outliers2 <- ggplot(data = nyc_boroughs) +
   scale_fill_manual(values = color_palette, na.value = "grey80") +
   labs(
     title = "Most common extreme outlier by borough",
-    fill = "Tipo de Extreme Outlier"
+    fill = "Complaint type"
   ) +
   theme_minimal()
 
@@ -361,7 +361,7 @@ map_outliers_1year2 <- ggplot(data = nyc_boroughs) +
   scale_fill_manual(values = color_palette, na.value = "grey80") +
   labs(
     title = "Most common observation with more than 1 year resolution time by borough",
-    fill = "Resolution Type (> 1 Ano)"
+    fill = "Complaint type"
   ) +
   theme_minimal()
 
@@ -1057,7 +1057,7 @@ server <- function(input, output) {
         title = paste("Number of observations and outliers by", selected_group),
         x = selected_group,
         y = "Count",
-        fill = "Tipo"
+        fill = "Type of observation"
       ) +
       scale_fill_brewer(palette = "Set2") +
       theme_minimal() +
@@ -1225,7 +1225,7 @@ server <- function(input, output) {
         title = "Boxplots by complaint type",
         x = "Complaint type",
         y = "Resolution time",
-        fill = "Tipo"
+        fill = "Complaint type"
       ) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))

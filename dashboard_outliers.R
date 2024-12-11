@@ -81,7 +81,7 @@ find_ext_outliers <- function(data, group_var, target_var) {
     mutate(Lower_Bound = Q1 - 3 * IQR, Upper_Bound = Q3 + 3 * IQR) %>%
     right_join(data, by = as.character(rlang::ensym(group_var))) %>%
     filter({{ target_var }} < Lower_Bound | {{ target_var }} > Upper_Bound) %>%
-    select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))  # Keep only relevant columns
+    select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))  
 }
 
 # Identify outliers for each category
@@ -100,8 +100,8 @@ find_outliers_custom_conditions <- function(data, group_var, target_var, lower_l
     ) %>%
     mutate(Lower_Bound = Q1 - 3 * IQR, Upper_Bound = Q3 + 3 * IQR) %>%
     right_join(data, by = as.character(rlang::ensym(group_var))) %>%
-    filter({{ target_var }} > lower_limit) %>%  # Aplica a condição para detectar valores acima do limite
-    select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))  # Remove colunas adicionais
+    filter({{ target_var }} > lower_limit) %>% 
+    select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))  
 }
 
 
@@ -222,7 +222,7 @@ filtered_outliers_complaint <- outliers_complaint %>%
 ext_outliers_complaint <- ext_outliers_complaint %>%
   filter(Borough != "Unspecified")
 
-# Padronizar nomes (se necessário, ajuste manualmente caso os nomes estejam diferentes)
+# Padronizar nomes 
 filtered_outliers_complaint$Borough <- tolower(filtered_outliers_complaint$Borough)
 ext_outliers_complaint$Borough <- tolower(ext_outliers_complaint$Borough)
 nyc_boroughs$BoroName <- tolower(nyc_boroughs$BoroName)
@@ -245,7 +245,6 @@ extreme_outliers_by_borough <- ext_outliers_complaint %>%
   rename(Most_Common_Extreme_Outlier = Complaint_Type)
 
 # Passo 3: Mesclar as informações com o shapefile
-# A mesclagem agora será feita com os nomes padronizados
 nyc_boroughs <- nyc_boroughs %>%
   left_join(outliers_by_borough, by = c("BoroName" = "Borough")) %>%
   left_join(extreme_outliers_by_borough, by = c("BoroName" = "Borough"))
@@ -261,9 +260,9 @@ all_complaint_types <- unique(c(
   nyc_boroughs$Most_Common_Extreme_Outlier
 ))
 
-# Criar uma paleta de cores personalizada (usar RColorBrewer ou uma função de cores)
+# Criar uma paleta de cores personalizada 
 library(RColorBrewer)
-set.seed(42)  # Garantir consistência
+set.seed(42)  
 color_palette <- setNames(brewer.pal(length(all_complaint_types), "Set3"), all_complaint_types)
 
 # Mapa 1: Outliers mais comuns
@@ -460,8 +459,8 @@ ui <- dashboardPage(
             title = "More than 1 year observations extreme values boxplots",
             status = "primary",
             solidHeader = TRUE,
-            width = 12, # Ajusta automaticamente à largura da coluna
-            plotlyOutput("boxplot_chart") # Define altura do gráfico
+            width = 12, 
+            plotlyOutput("boxplot_chart") 
           ),
           box(
             title = "More than 1 year observations extreme values map",
@@ -624,7 +623,7 @@ server <- function(input, output) {
   output$outliers_plot2 <- renderPlotly({
     selected_group <- input$outliers_group
     
-    # Filtrar os dados de acordo com o grupo escolhido, mas sem aplicar o filtro de Top 10 ainda
+    # Filtrar os dados de acordo com o grupo escolhido
     original_data <- filtered_data()
     
     # Contagens de outliers para todos os dados, sem restrição de Top 10
@@ -634,10 +633,10 @@ server <- function(input, output) {
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]),
       "Complaint_Type" = outliers_complaint %>%
         filter(Complaint_Type %in% unique(original_data$Complaint_Type))%>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]),  # Não restringe ao Top 10 aqui
+        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]), 
       "Complaint_Type.Clean" = outliers_complaintclean %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
-        filter(Complaint_Type.Clean %in% unique(original_data$Complaint_Type.Clean)),  # Mesmo para a versão limpa
+        filter(Complaint_Type.Clean %in% unique(original_data$Complaint_Type.Clean)), 
       "Day_Type" = outliers_day_type %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
     )
@@ -671,20 +670,20 @@ server <- function(input, output) {
   # Gráfico de Extreme Outliers
   output$ext_outliers_plot <- renderPlotly({
     selected_group <- input$ext_outliers_group
-    # Filtrar os dados de acordo com o grupo escolhido, mas sem aplicar o filtro de Top 10 ainda
+    # Filtrar os dados de acordo com o grupo escolhido
     original_data <- filtered_data()
     
-    # Contagens de outliers para todos os dados, sem restrição de Top 10
+    # Contagens de outliers para todos os dados
     ext_outlier_data <- switch(
       selected_group,
       "Borough" = ext_outliers_borough %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]),
       "Complaint_Type" = ext_outliers_complaint %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
-        filter(Complaint_Type %in% unique(original_data$Complaint_Type)),  # Não restringe ao Top 10 aqui
+        filter(Complaint_Type %in% unique(original_data$Complaint_Type)), 
       "Complaint_Type.Clean" = ext_outliers_complaintclean %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
-        filter(Complaint_Type.Clean %in% unique(original_data$Complaint_Type.Clean)),  # Mesmo para a versão limpa
+        filter(Complaint_Type.Clean %in% unique(original_data$Complaint_Type.Clean)), 
       "Day_Type" = ext_outliers_day_type %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
     )
@@ -719,20 +718,20 @@ server <- function(input, output) {
   output$outliers_plot_8760 <- renderPlotly({
     selected_group <- input$outliers_group_8760
     
-    # Filtrar os dados de acordo com o grupo escolhido, mas sem aplicar o filtro de Top 10 ainda
+    # Filtrar os dados de acordo com o grupo escolhido
     original_data <- filtered_data()
     
-    # Contagens de outliers para todos os dados, sem restrição de Top 10
+    # Contagens de outliers para todos os dados
     outlier_data_8760 <- switch(
       selected_group,
       "Borough" = outliers_borough_8760 %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]),
       "Complaint_Type" = outliers_complaint_8760 %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
-        filter(Complaint_Type %in% unique(original_data$Complaint_Type)),  # Não restringe ao Top 10 aqui
+        filter(Complaint_Type %in% unique(original_data$Complaint_Type)), 
       "Complaint_Type.Clean" = outliers_complaintclean_8760 %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
-        filter(Complaint_Type.Clean %in% unique(original_data$Complaint_Type.Clean)),  # Mesmo para a versão limpa
+        filter(Complaint_Type.Clean %in% unique(original_data$Complaint_Type.Clean)),  
       "Day_Type" = outliers_day_type_8760 %>%
         filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
     )
@@ -902,7 +901,7 @@ server <- function(input, output) {
   # Mapas iterativos2
   output$ggplot_map_display2 <- renderPlot({
     map_choice2 <- input$map_choice2
-    print(map_choice2)  # Verifique o valor de input$map_choice2
+    print(map_choice2) 
     
     if (map_choice2 == "map_outliers2") {
       ggplot_map2 <- map_outliers2

@@ -553,7 +553,7 @@ ui <- dashboardPage(
         "Agency",
         plotlyOutput("heatmap_a"),
         plotlyOutput("agency_lineplot"), 
-        plotlyOutput('violins')
+        plotOutput('violins')
       ),
       ####################### DIOGO
       tabPanel(
@@ -968,18 +968,23 @@ server <- function(input, output) {
   
   output$bubble <- renderPlotly({
     plot_data <- processed_data()$daily_data_a %>%
-      filter(Complaint.Type.Clean %in% unique(processed_data()$filtered_data$Complaint.Type.Clean))
+      filter(Complaint.Type.Clean %in% input$selected_complaint_types)
     
     bubble_data <- plot_data %>%
       group_by(Resolution.Time, Complaint.Type.Clean, Agency) %>%
       summarise(Count = n(), .groups = "drop")
     
-    pl <- ggplot(bubble_data, aes(x = Resolution.Time, y = Complaint.Type.Clean, size = Count, color = Agency)) +
+    bubble_data <- bubble_data %>%
+      mutate(Resolution.Time.Days = Resolution.Time %/% 24)
+    
+    
+    
+    pl <- ggplot(bubble_data, aes(x = Resolution.Time.Days, y = Complaint.Type.Clean, size = Count, color = Agency)) +
       geom_point(alpha = 0.7) +
       scale_size_continuous(range = c(2, 10)) +
       labs(
         title = "Bubble Chart of Resolution Time vs Complaints",
-        x = "Resolution Time (hours)",
+        x = "Resolution Time (days)",
         y = "Complaint Type"
       ) +
       theme_minimal()
@@ -988,7 +993,7 @@ server <- function(input, output) {
     
   })
   
-  output$violins <- renderPlotly({
+  output$violins <- renderPlot({
     if(input$outliers_a == FALSE) {
       plot_data <- processed_data()$daily_data_a %>%
         filter(
@@ -1002,17 +1007,21 @@ server <- function(input, output) {
           Agency %in% input$selected_agencies
         )
     }
-    
-    pl <- ggplot(plot_data, aes(x = Agency, y = Resolution.Time, fill = Borough)) + 
-      geom_violin(trim = FALSE, position = position_dodge(width = 0.8)) + 
-      geom_boxplot(width = 0.1, position = position_dodge(width = 0.8))
-    theme_minimal() + 
-      labs(title = "Violin Plots of Agency and Borough", 
-           x = "Agency", 
+    ggplot(plot_data, aes(x = Borough, y = Resolution.Time, fill = Agency)) + 
+      geom_violin(trim = FALSE, position = position_dodge(width = 0.8), alpha = 0.5) + 
+      geom_boxplot(width = 0.3, position = position_dodge(width = 0.8), alpha = 0.5) +
+      labs(title = "Boxplots of Agency and Borough", 
+           x = "Borough", 
            y = "Resolution Time (hours)", 
-           fill = "Borough")
+           fill = "Borough") + 
+      facet_wrap(~ Agency, scales = "free_y") +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),  # Rotation and bold styling for x-axis
+        axis.title.x = element_text(face = "bold"),  # Bold x-axis title
+        legend.position = "bottom"
+      )
     
-    ggplotly(pl)
     
   })
   
@@ -1562,8 +1571,10 @@ server <- function(input, output) {
   })
   
   output$thursday_trend <- renderPlotly({
-    thursday_data <- filtered_data_carol() %>%
-      filter(weekdays(Created.Date) == "Thursday") %>%
+    thursday_data <- filtered_data_carol()
+    
+    thursday_data <- thursday_data %>%
+      filter(Weekday == "Thursday") %>%
       group_by(Date = as.Date(Created.Date)) %>%
       summarise(Average.Resolution.Time = mean(Resolution.Time, na.rm = TRUE))
     

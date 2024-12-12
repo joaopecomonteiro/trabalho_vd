@@ -64,27 +64,53 @@ data$Complaint.Type.Clean <- gsub(".*ferry.*", "ferry", data$Complaint.Type.Clea
 
 data$Complaint.Type.Clean <- gsub(".*food.*", "food", data$Complaint.Type.Clean)
 
+data_bea <- data
+
+data_diogo <- data
+
+data_carol <- data
+
+
 #####
 
 ########################################## DIOGO
 
 #####
+# Carregar e preparar os dados
+data_d = read.csv("C:/Users/castr/Desktop/Uni/VD/PROJ1/NYC_311_Data_20241009.csv", header=TRUE, sep=";", na.strings=c("", " ", "N/A"))
+
+setDT(data_d)
+
+data_d <- data_d[, .(Created.Date, Closed.Date, Agency, Incident.Address, Incident.Zip, Community.Board, Agency.Name, Complaint.Type, Descriptor, City, Borough, Longitude, Latitude)]
+
+# Formatando datas
+data_d[, Created.Date := parse_date_time(Created.Date, orders = c("m/d/Y I:M:S p", "m/d/Y H:M"), tz = "UTC")]
+data_d[, Closed.Date := parse_date_time(Closed.Date, orders = c("m/d/Y I:M:S p", "m/d/Y H:M"), tz = "UTC")]
+
+data_d[, Resolution.Time := round(as.numeric(difftime(Closed.Date, Created.Date, units = "hours")), 2)]
+
+# Limpar e categorizar Complaint.Type
+data_d$Complaint.Type.Clean <- tolower(data_d$Complaint.Type)
+data_d$Complaint.Type.Clean <- gsub(".*noise.*", "noise", data_d$Complaint.Type.Clean)
+data_d$Complaint.Type.Clean <- gsub(".*highway sign.*", "highway sign", data_d$Complaint.Type.Clean)
+data_d$Complaint.Type.Clean <- gsub(".*street sign.*", "street sign", data_d$Complaint.Type.Clean)
+data_d$Complaint.Type.Clean <- gsub(".*illegal.*", "illegal", data_d$Complaint.Type.Clean)
 
 # Filtrar datas inválidas
-data <- data %>%
+data_d <- data_d %>%
   mutate(Created.Date = as.Date(Created.Date)) %>%
   filter(!is.na(Created.Date) & Borough != "Unspecified" & Borough != "")
 
 # Classificar dias como Dia de Semana ou Fim de Semana
-data <- data %>%
+data_d <- data_d %>%
   mutate(Day_Type = case_when(
     wday(Created.Date) %in% c(1, 7) ~ "Weekend/Holidays",
     TRUE ~ "Weekdays"
   ))
 
 # Função para identificar outliers
-find_outliers <- function(data, group_var, target_var) {
-  data %>%
+find_outliers <- function(data_d, group_var, target_var) {
+  data_d %>%
     group_by({{ group_var }}) %>%
     summarise(
       Q1 = quantile({{ target_var }}, 0.25, na.rm = TRUE),
@@ -92,15 +118,15 @@ find_outliers <- function(data, group_var, target_var) {
       IQR = Q3 - Q1
     ) %>%
     mutate(Lower_Bound = Q1 - 1.5 * IQR, Upper_Bound = Q3 + 1.5 * IQR) %>%
-    right_join(data, by = as.character(rlang::ensym(group_var))) %>%
+    right_join(data_d, by = as.character(rlang::ensym(group_var))) %>%
     filter({{ target_var }} < Lower_Bound | {{ target_var }} > Upper_Bound)
 }
 
 # Identificar outliers
-outliers_borough <- find_outliers(data, Borough, Resolution.Time)
-outliers_complaint <- find_outliers(data, Complaint.Type, Resolution.Time)
-outliers_complaintclean <- find_outliers(data, Complaint.Type.Clean, Resolution.Time)
-outliers_day_type <- find_outliers(data, Day_Type, Resolution.Time)
+outliers_borough <- find_outliers(data_d, Borough, Resolution.Time)
+outliers_complaint <- find_outliers(data_d, Complaint.Type, Resolution.Time)
+outliers_complaintclean <- find_outliers(data_d, Complaint.Type.Clean, Resolution.Time)
+outliers_day_type <- find_outliers(data_d, Day_Type, Resolution.Time)
 
 # Criar subconjuntos de dados para os mapas
 outliers_top5 <- outliers_borough %>% head(5)
@@ -110,8 +136,8 @@ outliers_top5_8760 <- outliers_day_type %>% head(5)
 
 
 # Function to calculate outliers for a given grouping variable
-find_ext_outliers <- function(data, group_var, target_var) {
-  data %>%
+find_ext_outliers <- function(data_d, group_var, target_var) {
+  data_d %>%
     group_by({{ group_var }}) %>%
     summarise(
       Q1 = quantile({{ target_var }}, 0.25, na.rm = TRUE),
@@ -119,19 +145,19 @@ find_ext_outliers <- function(data, group_var, target_var) {
       IQR = Q3 - Q1
     ) %>%
     mutate(Lower_Bound = Q1 - 3 * IQR, Upper_Bound = Q3 + 3 * IQR) %>%
-    right_join(data, by = as.character(rlang::ensym(group_var))) %>%
+    right_join(data_d, by = as.character(rlang::ensym(group_var))) %>%
     filter({{ target_var }} < Lower_Bound | {{ target_var }} > Upper_Bound) %>%
     select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))  
 }
 
 # Identify outliers for each category
-ext_outliers_borough <- find_ext_outliers(data, Borough, Resolution.Time)
-ext_outliers_complaint <- find_ext_outliers(data, Complaint.Type, Resolution.Time)
-ext_outliers_complaintclean <- find_ext_outliers(data, Complaint.Type.Clean, Resolution.Time)
-ext_outliers_day_type <- find_ext_outliers(data, Day_Type, Resolution.Time)
+ext_outliers_borough <- find_ext_outliers(data_d, Borough, Resolution.Time)
+ext_outliers_complaint <- find_ext_outliers(data_d, Complaint.Type, Resolution.Time)
+ext_outliers_complaintclean <- find_ext_outliers(data_d, Complaint.Type.Clean, Resolution.Time)
+ext_outliers_day_type <- find_ext_outliers(data_d, Day_Type, Resolution.Time)
 
-find_outliers_custom_conditions <- function(data, group_var, target_var, lower_limit) {
-  data %>%
+find_outliers_custom_conditions <- function(data_d, group_var, target_var, lower_limit) {
+  data_d %>%
     group_by({{ group_var }}) %>%
     summarise(
       Q1 = quantile({{ target_var }}, 0.25, na.rm = TRUE),
@@ -139,17 +165,17 @@ find_outliers_custom_conditions <- function(data, group_var, target_var, lower_l
       IQR = Q3 - Q1
     ) %>%
     mutate(Lower_Bound = Q1 - 3 * IQR, Upper_Bound = Q3 + 3 * IQR) %>%
-    right_join(data, by = as.character(rlang::ensym(group_var))) %>%
+    right_join(data_d, by = as.character(rlang::ensym(group_var))) %>%
     filter({{ target_var }} > lower_limit) %>% 
     select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))  
 }
 
 
 # Identificar outliers para valores superiores a 8760 - 1 ano
-outliers_borough_8760 <- find_outliers_custom_conditions(data, Borough, Resolution.Time, 8760)
-outliers_complaint_8760 <- find_outliers_custom_conditions(data, Complaint.Type, Resolution.Time, 8760)
-outliers_complaintclean_8760 <- find_outliers_custom_conditions(data, Complaint.Type.Clean, Resolution.Time, 8760)
-outliers_day_type_8760 <- find_outliers_custom_conditions(data, Day_Type, Resolution.Time, 8760)
+outliers_borough_8760 <- find_outliers_custom_conditions(data_d, Borough, Resolution.Time, 8760)
+outliers_complaint_8760 <- find_outliers_custom_conditions(data_d, Complaint.Type, Resolution.Time, 8760)
+outliers_complaintclean_8760 <- find_outliers_custom_conditions(data_d, Complaint.Type.Clean, Resolution.Time, 8760)
+outliers_day_type_8760 <- find_outliers_custom_conditions(data_d, Day_Type, Resolution.Time, 8760)
 
 # Carregar os dados dos boroughs
 nyc_boroughs <- st_read("C:/Users/castr/Desktop/Uni/VD/PROJ1/nybb.shp") %>%
@@ -228,7 +254,7 @@ map_outliers <- ggplot() +
   geom_point(data = outliers_top5, aes(x = Longitude, y = Latitude, color = Complaint.Type), size = 2, alpha = 0.4) +
   labs(
     title = "Top 5 outliers in New York map",
-    color = "Complaint type"
+    color = "Complaint type (Top 5)"
   ) +
   theme_minimal() +
   scale_color_manual(values = color_palette)
@@ -238,7 +264,7 @@ map_extreme_outliers <- ggplot() +
   geom_point(data = extreme_outliers_top5, aes(x = Longitude, y = Latitude, color = Complaint.Type), size = 2, alpha = 0.4) +
   labs(
     title = "Top 5 extreme outliers in New York map",
-    color = "Complaint type"
+    color = "Complaint type (Top 5)"
   ) +
   theme_minimal() +
   scale_color_manual(values = color_palette)
@@ -248,7 +274,7 @@ map_outliers_8760 <- ggplot() +
   geom_point(data = outliers_top5_8760, aes(x = Longitude, y = Latitude, color = Complaint.Type), size = 2, alpha = 0.4) +
   labs(
     title = "Top 5 observations with more than 1 year resolution time in New York map",
-    color = "Complaint type"
+    color = "Complaint type (Top 5)"
   ) +
   theme_minimal() +
   scale_color_manual(values = color_palette)
@@ -306,22 +332,22 @@ set.seed(42)
 color_palette <- setNames(brewer.pal(length(all_Complaint.Types), "Set3"), all_Complaint.Types)
 
 # Mapa 1: Outliers mais comuns
-map_outliers2 <- ggplot(data = nyc_boroughs) +
+map_outliers2 <- ggplot(nyc_boroughs) +
   geom_sf(aes(fill = Most_Common_Outlier), color = "black", size = 0.3) +
   scale_fill_manual(values = color_palette, na.value = "grey80") +
   labs(
     title = "Most common outlier by borough",
-    fill = "Complaint type"
+    fill = "Tipo de Outlier"
   ) +
   theme_minimal()
 
 # Mapa 2: Extreme outliers mais comuns
-map_extreme_outliers2 <- ggplot(data = nyc_boroughs) +
+map_extreme_outliers2 <- ggplot(nyc_boroughs) +
   geom_sf(aes(fill = Most_Common_Extreme_Outlier), color = "black", size = 0.3) +
   scale_fill_manual(values = color_palette, na.value = "grey80") +
   labs(
     title = "Most common extreme outlier by borough",
-    fill = "Complaint type"
+    fill = "Tipo de Extreme Outlier"
   ) +
   theme_minimal()
 
@@ -361,7 +387,7 @@ map_outliers_1year2 <- ggplot(data = nyc_boroughs) +
   scale_fill_manual(values = color_palette, na.value = "grey80") +
   labs(
     title = "Most common observation with more than 1 year resolution time by borough",
-    fill = "Complaint type"
+    fill = "Resolution Type (> 1 Ano)"
   ) +
   theme_minimal()
 
@@ -413,7 +439,7 @@ ui <- dashboardPage(
         ),
         uiOutput("complaint_type_selector"),
         uiOutput("borough_selector"),
-        dateRangeInput(inputId = "date_range", label = "Select Date Range:", start = min(data$Created.Date, na.rm = TRUE), end = max(data$Created.Date, na.rm = TRUE)),
+        dateRangeInput(inputId = "date_range_b", label = "Select Date Range:", start = min(data_bea$Created.Date, na.rm = TRUE), end = max(data_bea$Created.Date, na.rm = TRUE)),
         radioButtons(inputId = "time_resolution", label = "Choose resolution time representation:", choices = list("Daily" = "daily", "Hourly" = "hourly"), selected = "daily")
       ),
       conditionalPanel(
@@ -421,13 +447,13 @@ ui <- dashboardPage(
         checkboxInput(inputId = "outliers_a", label = "Remove Outliers", value = FALSE),
         selectInput(inputId = "selected_agencies", 
                     label = "Select Agencies:", 
-                    choices = unique((data %>% filter(!is.na(Agency), !is.na(Borough), Borough != 'unspecified'))$Agency), 
-                    selected = unique((data %>% filter(!is.na(Agency), !is.na(Borough), Borough != 'unspecified'))$Agency), 
+                    choices = unique((data_bea %>% filter(!is.na(Agency), !is.na(Borough), Borough != 'unspecified'))$Agency), 
+                    selected = unique((data_bea %>% filter(!is.na(Agency), !is.na(Borough), Borough != 'unspecified'))$Agency), 
                     multiple = TRUE),
         checkboxGroupInput(inputId = "selected_boroughs_agency", 
                            label = "Select Boroughs:", 
-                           choices = unique((data %>% filter(!is.na(Borough), Borough != 'unspecified'))$Borough), 
-                           selected = unique((data %>% filter(!is.na(Borough), Borough != 'unspecified'))$Borough)),
+                           choices = unique((data_bea %>% filter(!is.na(Borough), Borough != 'unspecified'))$Borough), 
+                           selected = unique((data_bea %>% filter(!is.na(Borough), Borough != 'unspecified'))$Borough)),
       ),
       ############################ DIOGO
       conditionalPanel(
@@ -447,10 +473,10 @@ ui <- dashboardPage(
           conditionalPanel(
             condition = "input.menu === 'outliers_chart' || input.menu === 'outliers_chart2' || input.menu === 'ext_outliers_chart' || input.menu === 'outliers_chart_8760' || input.menu === 'combined graphs' || input.menu === 'top10_complaints' || input.menu === 'homeless'",  # Defina as abas desejadas
             dateRangeInput(
-              "date_range",
+              "date_range_d",
               "Date Range:",
-              start = min(data$Created.Date),
-              end = max(data$Created.Date)
+              start = min(data_d$Created.Date),
+              end = max(data_d$Created.Date)
             )
           ),
           
@@ -504,7 +530,7 @@ ui <- dashboardPage(
       conditionalPanel(
         condition = "input.tab_selector == 'Time'",
         menuItem("Filtros", tabName = "filtros", icon = icon("filter")),
-        dateRangeInput("date_range", "Intervalo de Datas", start = min(data$Created.Date), end = max(data$Created.Date)),
+        dateRangeInput("date_range_c", "Intervalo de Datas", start = min(data$Created.Date), end = max(data$Created.Date)),
         selectInput("complaint_type", "Tipo de Reclamação", choices = c("Todos", unique(data$Complaint.Type.Clean))),
         selectInput("borough", "Bairro", choices = c("Todos", unique(data$Borough))),
         selectInput("period_filter", "Período do Dia", choices = c("Todos", "Morning", "Afternoon", "Nigth", "Early Morning")),
@@ -694,7 +720,7 @@ server <- function(input, output) {
   
   ################################### BEA
   processed_data <- reactive({
-    data_c <- data %>%
+    data_c <- data_bea %>%
       filter(Borough != 'unspecified', !is.na(Borough), Resolution.Time >= 0)
     
     top_complaints <- data_c %>%
@@ -871,8 +897,8 @@ server <- function(input, output) {
       filter(
         Complaint.Type.Clean %in% input$selected_complaint_types,
         Borough %in% input$selected_boroughs,
-        Created.Date.Day >= input$date_range[1],
-        Created.Date.Day <= input$date_range[2]
+        Created.Date.Day >= input$date_range_b[1],
+        Created.Date.Day <= input$date_range_b[2]
       )
     
     if (input$time_resolution == "daily") {
@@ -882,6 +908,9 @@ server <- function(input, output) {
       x_label <- "Day"
       title <- "Daily Avg Resolution Time by Borough and Complaint Type"
     } else {
+      filtered_data <- filtered_data %>%
+        mutate(Created.Date = as.POSIXct(Created.Date))
+        
       plot_data <- filtered_data %>%
         mutate(Created.Hour = floor_date(Created.Date, "hour")) %>%
         group_by(Created.Hour, Borough, Complaint.Type.Clean) %>%
@@ -989,8 +1018,8 @@ server <- function(input, output) {
   
   ################################ DIOGO
   
-  get_top10 <- function(data, group_var) {
-    data %>%
+  get_top10 <- function(data_d, group_var) {
+    data_d %>%
       count({{ group_var }}, sort = TRUE) %>%
       slice_max(n, n = 10) %>%
       pull({{ group_var }})
@@ -998,8 +1027,8 @@ server <- function(input, output) {
   
   # Dados filtrados
   filtered_data_diogo <- reactive({
-    data %>%
-      filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
+    data_d %>%
+      filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2])
   })
   
   # Gráfico de Outliers
@@ -1007,12 +1036,12 @@ server <- function(input, output) {
     selected_group <- input$outliers_group
     
     # Filtrar os Top 10, se necessário
-    get_top10_filtered <- function(data, group_var) {
-      top10_values <- data %>%
+    get_top10_filtered <- function(data_d, group_var) {
+      top10_values <- data_d %>%
         count({{ group_var }}, sort = TRUE) %>%
         slice_head(n = 10) %>%
         pull({{ group_var }})
-      data %>% filter({{ group_var }} %in% top10_values)
+      data_d %>% filter({{ group_var }} %in% top10_values)
     }
     
     # Selecionar os dados de acordo com o grupo escolhido
@@ -1031,13 +1060,13 @@ server <- function(input, output) {
     outlier_data <- switch(
       selected_group,
       "Borough" = outliers_borough %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]),
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]),
       "Complaint.Type" = outliers_complaint %>%
-        filter(Complaint.Type %in% get_top10_filtered(filtered_data(), Complaint.Type)$Complaint.Type),
+        filter(Complaint.Type %in% get_top10_filtered(filtered_data_diogo(), Complaint.Type)$Complaint.Type),
       "Complaint.Type.Clean" = outliers_complaintclean %>%
         filter(Complaint.Type.Clean %in% get_top10_filtered(filtered_data_diogo(), Complaint.Type.Clean)$Complaint.Type.Clean),
       "Day_Type" = outliers_day_type %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2])
     )
     
     outlier_counts <- outlier_data %>%
@@ -1057,7 +1086,7 @@ server <- function(input, output) {
         title = paste("Number of observations and outliers by", selected_group),
         x = selected_group,
         y = "Count",
-        fill = "Type of observation"
+        fill = "Tipo"
       ) +
       scale_fill_brewer(palette = "Set2") +
       theme_minimal() +
@@ -1078,15 +1107,15 @@ server <- function(input, output) {
     outlier_data <- switch(
       selected_group,
       "Borough" = outliers_borough %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]),
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]),
       "Complaint.Type" = outliers_complaint %>%
         filter(Complaint.Type %in% unique(original_data$Complaint.Type))%>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]), 
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]), 
       "Complaint.Type.Clean" = outliers_complaintclean %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]) %>%
         filter(Complaint.Type.Clean %in% unique(original_data$Complaint.Type.Clean)), 
       "Day_Type" = outliers_day_type %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2])
     )
     
     # Contagens de outliers por grupo
@@ -1121,21 +1150,19 @@ server <- function(input, output) {
     # Filtrar os dados de acordo com o grupo escolhido
     original_data <- filtered_data_diogo()
     
-    print(original_data)
-    
     # Contagens de outliers para todos os dados
     ext_outlier_data <- switch(
       selected_group,
       "Borough" = ext_outliers_borough %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]),
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]),
       "Complaint.Type" = ext_outliers_complaint %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]) %>%
         filter(Complaint.Type %in% unique(original_data$Complaint.Type)), 
       "Complaint.Type.Clean" = ext_outliers_complaintclean %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]) %>%
         filter(Complaint.Type.Clean %in% unique(original_data$Complaint.Type.Clean)), 
       "Day_Type" = ext_outliers_day_type %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2])
     )
     
     # Contagens de outliers por grupo
@@ -1175,15 +1202,15 @@ server <- function(input, output) {
     outlier_data_8760 <- switch(
       selected_group,
       "Borough" = outliers_borough_8760 %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]),
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]),
       "Complaint.Type" = outliers_complaint_8760 %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]) %>%
         filter(Complaint.Type %in% unique(original_data$Complaint.Type)), 
       "Complaint.Type.Clean" = outliers_complaintclean_8760 %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]) %>%
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]) %>%
         filter(Complaint.Type.Clean %in% unique(original_data$Complaint.Type.Clean)),  
       "Day_Type" = outliers_day_type_8760 %>%
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
+        filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2])
     )
     
     # Contagens de outliers por grupo
@@ -1225,7 +1252,7 @@ server <- function(input, output) {
         title = "Boxplots by complaint type",
         x = "Complaint type",
         y = "Resolution time",
-        fill = "Complaint type"
+        fill = "Tipo"
       ) +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -1242,7 +1269,7 @@ server <- function(input, output) {
     map_data <- outliers_complaint_8760 %>%
       filter(Complaint.Type %in% c("Building/Use", "New Tree Request", "General Construction/Plumbing", "Overgrown Tree/Branches")) %>%
       filter(!is.na(Latitude) & !is.na(Longitude)) %>%  
-      filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
+      filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2])
     
     gg <- ggplot() +
       geom_sf(data = nyc_boroughs, fill = "gray80", color = "black", size = 0.2) +
@@ -1264,7 +1291,7 @@ server <- function(input, output) {
     # Filtrar dados com base no intervalo de datas
     filtered_outliers_complaint <- outliers_complaint %>%
       filter(
-        Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2]
+        Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2]
       )
     
     # Selecionar os 10 tipos de queixa mais frequentes no intervalo
@@ -1296,12 +1323,13 @@ server <- function(input, output) {
   
   # Homeless
   output$homeless <- renderPlotly({
+    print(outliers_complaint)
     # Filtrar os dados para "Homeless Person Assistance" com mais de 1 ano
     homeless_use_outliers <- outliers_complaint %>%
       filter(Complaint.Type == "Homeless Person Assistance") %>%
       filter(!is.na(Latitude) & !is.na(Longitude)) %>%  # Remover dados sem coordenadas
       filter(Borough != "Unspecified")  %>%  # Remover boroughs não especificados
-      filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
+      filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2])
     
     # Ajustar o shapefile de NYC para incluir informações de "Homeless Person Assistance"
     nyc_boroughs <- nyc_boroughs %>%
@@ -1350,7 +1378,6 @@ server <- function(input, output) {
   # Mapas iterativos2
   output$ggplot_map_display2 <- renderPlot({
     map_choice2 <- input$map_choice2
-    print(map_choice2) 
     
     if (map_choice2 == "map_outliers2") {
       ggplot_map2 <- map_outliers2
@@ -1368,9 +1395,9 @@ server <- function(input, output) {
   filtered_data_carol <- reactive({
     data_filtered_carol <- data
     
-    if (!is.null(input$date_range)) {
+    if (!is.null(input$date_range_c)) {
       data_filtered_carol <- data_filtered_carol %>% 
-        filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
+        filter(Created.Date >= input$date_range_c[1] & Created.Date <= input$date_range_c[2])
     }
     
     if (input$complaint_type != "Todos") {

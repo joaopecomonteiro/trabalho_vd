@@ -793,9 +793,6 @@ ui <- dashboardPage(
           box(plotlyOutput("heatmap"), width = 6),
           box(plotlyOutput("stacked_bar"), width = 6)
         ),
-        fluidRow(
-          box(plotlyOutput("thursday_trend"), width = 12)
-        )
       ),
       ############################# JOAO
       tabPanel(
@@ -1501,7 +1498,6 @@ server <- function(input, output, session) {
     data_filtered_carol$Weekday <- weekdays(data_filtered_carol$Created.Date)
     data_filtered_carol$Hour <- hour(data_filtered_carol$Created.Date)
     
-    # Apply log filter if selected
     if (input$log_filter) {
       data_filtered_carol <- data_filtered_carol %>%
         filter(log1p(Resolution.Time) >= input$log_range_filter)
@@ -1510,7 +1506,6 @@ server <- function(input, output, session) {
     return(data_filtered_carol)
   })
   
-  # Dynamically update Top Complaint Types
   top_complaints <- reactive({
     filtered_data_carol() %>%
       count(Complaint.Type.Clean, sort = TRUE) %>%
@@ -1518,7 +1513,6 @@ server <- function(input, output, session) {
       pull(Complaint.Type.Clean)
   })
   
-  # Dynamically update complaint type filter options
   observe({
     updateCheckboxGroupInput(
       session,
@@ -1563,7 +1557,6 @@ server <- function(input, output, session) {
         .groups = 'drop'
       )
     
-    # Choose between normal or log values
     z_col <- if (input$log_filter) "Average.Log.Resolution.Time" else "Average.Resolution.Time"
     colorbar_title <- if (input$log_filter) "Log(Avg Res Time)" else "Avg Res Time"
     
@@ -1693,21 +1686,6 @@ server <- function(input, output, session) {
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
     
     ggplotly(stacked_bar_plot)
-  })
-  
-  output$thursday_trend <- renderPlotly({
-    thursday_data <- filtered_data_carol() %>%
-      filter(weekdays(Created.Date) == "Thursday") %>%
-      group_by(Date = as.Date(Created.Date)) %>%
-      summarise(Average.Resolution.Time = mean(Resolution.Time, na.rm = TRUE))
-    
-    thursday_plot <- ggplot(thursday_data, aes(x = Date, y = Average.Resolution.Time)) +
-      geom_line(color = "blue", size = 1.2) +
-      geom_point(color = "darkblue", size = 3) +
-      labs(title = "Average Resolution Time on Thursdays", x = "Date", y = "Average Resolution Time") +
-      theme_minimal()
-    
-    ggplotly(thursday_plot)
   })
   
   ################################## JOAO
@@ -1932,7 +1910,6 @@ server <- function(input, output, session) {
       
     }
     
-    # Convert to plotly for interactivity
     ggplotly(p, tooltip = c("Complaint.Type.Clean", "Resolution.Time"))
     
   })

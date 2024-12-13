@@ -13,7 +13,7 @@ library(RColorBrewer)
 ########################################## DATA PREPARATION
 #####
 
-data <- read.csv("~/Documents/UP/24 25/1ºsemestre/VisualizaçãoDados/Projeto/NYC_311_Data_20241009.csv", 
+data <- read.csv("/home/joaomonteiro/Desktop/VD/NYC_311_Data_20241009.csv", 
                  header = TRUE, sep = ";", na.strings = c("", " ", "N/A"))
 setDT(data)
 
@@ -78,7 +78,7 @@ data_carol <- data
 
 #####
 # Carregar e preparar os dados
-data_d = read.csv("~/Documents/UP/24 25/1ºsemestre/VisualizaçãoDados/Projeto/NYC_311_Data_20241009.csv", 
+data_d = read.csv("/home/joaomonteiro/Desktop/VD/NYC_311_Data_20241009.csv", 
                   header = TRUE, sep = ";", na.strings = c("", " ", "N/A"))
 
 setDT(data_d)
@@ -180,7 +180,7 @@ outliers_complaintclean_8760 <- find_outliers_custom_conditions(data_d, Complain
 outliers_day_type_8760 <- find_outliers_custom_conditions(data_d, Day_Type, Resolution.Time, 8760)
 
 # Carregar os dados dos boroughs
-nyc_boroughs <- st_read("~/Documents/UP/24 25/1ºsemestre/VisualizaçãoDados/Projeto/nybb.shp") %>%
+nyc_boroughs <- st_read("/home/joaomonteiro/Desktop/trabalho_vd/borough_shape/nybb.shp") %>%
   st_transform(crs = 4326)
 
 borough_centroids <- st_centroid(nyc_boroughs)
@@ -468,14 +468,15 @@ ui <- dashboardPage(
           menuItem("Outliers", tabName = "outliers_chart2", icon = icon("exclamation-triangle")),
           menuItem("Extreme Outliers", tabName = "ext_outliers_chart", icon = icon("exclamation-triangle")),
           menuItem("More than 1 year observations", tabName = "outliers_chart_8760", icon = icon("calendar")),
+          menuItem("Maps - Top 5 by Outliers", tabName = "interactive_maps", icon = icon("map")),
+          menuItem("Maps - Top 1 by Outliers", tabName = "interactive_maps2", icon = icon("map")),
           menuItem("Extreme (> 1 year) observations", tabName = "combined_graphs", icon = icon("search")),
           menuItem("Outliers distribution by Borough", tabName = "top10_complaints", icon = icon("table")),
           menuItem("Homeless Assistance Map", tabName = "homeless", icon = icon("search")),
-          menuItem("Maps - Top 5 by Outliers", tabName = "interactive_maps", icon = icon("map")),
-          menuItem("Maps - Top 1 by Outliers", tabName = "interactive_maps2", icon = icon("map")),
           hr(),
           conditionalPanel(
-            condition = "input.menu === 'outliers_chart' || input.menu === 'outliers_chart2' || input.menu === 'ext_outliers_chart' || input.menu === 'outliers_chart_8760' || input.menu === 'combined_graphs' || input.menu === 'top10_complaints' || input.menu === 'homeless'",  
+            condition = "input.menu === 'outliers_chart' || input.menu === 'outliers_chart2' || input.menu === 'ext_outliers_chart' || input.menu === 'outliers_chart_8760' || input.menu === 'combined graphs' || input.menu === 'top10_complaints' || input.menu === 'homeless'",  # Defina as abas desejadas
+            dateRangeInput(
               "date_range_d",
               "Date Range:",
               start = min(data_d$Created.Date),
@@ -563,7 +564,7 @@ ui <- dashboardPage(
         sliderInput("sample_size", "Sample Size:",
                     min = 0,
                     max = 100,
-                    value = 100),
+                    value = 1),
         
         radioButtons(
           inputId = "selected_color_type", 
@@ -596,7 +597,7 @@ ui <- dashboardPage(
                      max = round(max(data$Resolution.Time, na.rm = TRUE)),
                      value = max(data$Resolution.Time, na.rm = TRUE)),
         
-        sliderInput(inputId = "num_top_cases", label = "Number of Top Complaint Types:", 
+        sliderInput(inputId = "num_top_cases_j", label = "Number of Top Complaint Types:", 
                     value = 5, min = 1, max = 138),
         
         radioButtons(
@@ -1331,8 +1332,7 @@ server <- function(input, output, session) {
   output$boxplot_chart <- renderPlotly({
     
     filtered_boxplot_data <- filtered_data_diogo() %>%
-      filter(Complaint.Type %in% c("Building/Use", "New Tree Request", "General Construction/Plumbing", "Overgrown Tree/Branches"))  %>%  
-      filter(Created.Date >= input$date_range[1] & Created.Date <= input$date_range[2])
+      filter(Complaint.Type %in% c("Building/Use", "New Tree Request", "General Construction/Plumbing", "Overgrown Tree/Branches"))
     
     gg <- ggplot(filtered_boxplot_data, aes(x = Complaint.Type, y = Resolution.Time, fill = Complaint.Type)) +
       geom_boxplot() +
@@ -1708,7 +1708,7 @@ server <- function(input, output, session) {
   observe({
     updateSliderInput(
       session,
-      inputId = "num_top_cases",
+      inputId = "num_top_cases_j",
       max = unique_complaint_count(),  # Set max to the number of unique types
       value = min(5, unique_complaint_count())  # Default value, constrained by max
     )
@@ -1734,7 +1734,7 @@ server <- function(input, output, session) {
       
       top_complaints <- data_j %>%
         count(Complaint.Type.Clean, sort = TRUE) %>%
-        top_n(input$num_top_cases, n)
+        top_n(input$num_top_cases_j, n)
       
       #print(top_complaints)
       

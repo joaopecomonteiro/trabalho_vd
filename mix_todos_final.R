@@ -468,14 +468,14 @@ ui <- dashboardPage(
           menuItem("Outliers", tabName = "outliers_chart2", icon = icon("exclamation-triangle")),
           menuItem("Extreme Outliers", tabName = "ext_outliers_chart", icon = icon("exclamation-triangle")),
           menuItem("More than 1 year observations", tabName = "outliers_chart_8760", icon = icon("calendar")),
-          menuItem("Maps - Top 5 by Outliers", tabName = "interactive_maps", icon = icon("map")),
-          menuItem("Maps - Top 1 by Outliers", tabName = "interactive_maps2", icon = icon("map")),
           menuItem("Extreme (> 1 year) observations", tabName = "combined_graphs", icon = icon("search")),
           menuItem("Outliers distribution by Borough", tabName = "top10_complaints", icon = icon("table")),
           menuItem("Homeless Assistance Map", tabName = "homeless", icon = icon("search")),
+          menuItem("Maps - Top 5 by Outliers", tabName = "interactive_maps", icon = icon("map")),
+          menuItem("Maps - Top 1 by Outliers", tabName = "interactive_maps2", icon = icon("map")),
           hr(),
           conditionalPanel(
-            condition = "input.menu === 'outliers_chart' || input.menu === 'outliers_chart2' || input.menu === 'ext_outliers_chart' || input.menu === 'outliers_chart_8760' || input.menu === 'combined graphs' || input.menu === 'top10_complaints' || input.menu === 'homeless'",  # Defina as abas desejadas
+            condition = "input.menu === 'outliers_chart' || input.menu === 'outliers_chart2' || input.menu === 'ext_outliers_chart' || input.menu === 'outliers_chart_8760' || input.menu === 'combined_graphs' || input.menu === 'top10_complaints' || input.menu === 'homeless'",  # Defina as abas desejadas
             dateRangeInput(
               "date_range_d",
               "Date Range:",
@@ -1332,7 +1332,8 @@ server <- function(input, output, session) {
   output$boxplot_chart <- renderPlotly({
     
     filtered_boxplot_data <- filtered_data_diogo() %>%
-      filter(Complaint.Type %in% c("Building/Use", "New Tree Request", "General Construction/Plumbing", "Overgrown Tree/Branches"))
+      filter(Complaint.Type %in% c("Building/Use", "New Tree Request", "General Construction/Plumbing", "Overgrown Tree/Branches")), %>%
+      filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2])
     
     gg <- ggplot(filtered_boxplot_data, aes(x = Complaint.Type, y = Resolution.Time, fill = Complaint.Type)) +
       geom_boxplot() +

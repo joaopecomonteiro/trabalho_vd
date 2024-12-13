@@ -1332,7 +1332,7 @@ server <- function(input, output, session) {
   output$boxplot_chart <- renderPlotly({
     
     filtered_boxplot_data <- filtered_data_diogo() %>%
-      filter(Complaint.Type %in% c("Building/Use", "New Tree Request", "General Construction/Plumbing", "Overgrown Tree/Branches")), %>%
+      filter(Complaint.Type %in% c("Building/Use", "New Tree Request", "General Construction/Plumbing", "Overgrown Tree/Branches")) %>%
       filter(Created.Date >= input$date_range_d[1] & Created.Date <= input$date_range_d[2])
     
     gg <- ggplot(filtered_boxplot_data, aes(x = Complaint.Type, y = Resolution.Time, fill = Complaint.Type)) +
@@ -1939,4 +1939,3 @@ server <- function(input, output, session) {
 
 
 shinyApp(ui = ui, server = server)
-

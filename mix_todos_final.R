@@ -1803,13 +1803,19 @@ server <- function(input, output, session) {
                   color = "black", size = 4) +
         
         labs(
-          title = "No Complaints in the Selected Resolution.Time Range",
+          title = "",
           color = "Complaint Type"
         ) +
         theme_minimal() +
         theme(
-          axis.text = element_blank(),  # Remove axis text
-          axis.ticks = element_blank(), # Remove axis ticks
+          legend.position = "right",  # Position the legend on the right
+          axis.text = element_blank(),  # Bold axis text
+          axis.title = element_blank(),  # Bold axis titles
+          legend.text = element_text(face = "bold"),  # Bold legend text
+          legend.title = element_text(face = "bold"),  # Bold legend title
+          plot.title = element_text(face = "bold"),  # Bold plot title
+          plot.subtitle = element_text(face = "bold"),  # Bold plot subtitle
+          plot.caption = element_text(face = "bold"),  # Bold plot caption
           panel.grid = element_blank()  # Remove background grid lines
         )
     } else {
@@ -1818,7 +1824,7 @@ server <- function(input, output, session) {
         p <- ggplot(data = plot_data) +
           geom_sf(data = nyc_boroughs, fill = "gray90", color = "black") +
           
-          geom_point(aes(x = Longitude, y = Latitude, color = Complaint.Type.Clean), size = 2, alpha = alpha) +
+          geom_point(aes(x = Longitude, y = Latitude, color = Complaint.Type.Clean, text=Street.Name), size = 2, alpha = alpha) +
           
           #geom_point(aes(x = Longitude, y = Latitude, color = Complaint.Type.Clean), size = 2, alpha = alpha) +
           geom_text(data = borough_centroids, aes(x = st_coordinates(geometry)[,1], 
@@ -1830,7 +1836,7 @@ server <- function(input, output, session) {
           scale_alpha_identity() +  # Use provided alpha values directly
           scale_size_identity() +   # Use provided size values directly
           labs(
-            title = "NYC Complaints (Filtered by Resolution.Time)", # Static title
+            title = "", # Static title
             color = "Complaint Type",  # Legend title for color
             size = NULL    # No size legend
           ) +
@@ -1839,9 +1845,14 @@ server <- function(input, output, session) {
           
           theme_minimal() +
           theme(
-            legend.position = "right", # Position the legend on the right
-            axis.text = element_blank(),  # Remove axis text
-            axis.ticks = element_blank(), # Remove axis ticks
+            legend.position = "right",  # Position the legend on the right
+            axis.text = element_blank(),  # Bold axis text
+            axis.title = element_blank(),  # Bold axis titles
+            legend.text = element_text(face = "bold"),  # Bold legend text
+            legend.title = element_text(face = "bold"),  # Bold legend title
+            plot.title = element_text(face = "bold"),  # Bold plot title
+            plot.subtitle = element_text(face = "bold"),  # Bold plot subtitle
+            plot.caption = element_text(face = "bold"),  # Bold plot caption
             panel.grid = element_blank()  # Remove background grid lines
           ) 
       }
@@ -1849,7 +1860,7 @@ server <- function(input, output, session) {
         p <- ggplot(data = plot_data) +
           geom_sf(data = nyc_boroughs, fill = "gray90", color = "black") +
           
-          geom_point(aes(x = Longitude, y = Latitude, color = Agency), size = 2, alpha = alpha) +
+          geom_point(aes(x = Longitude, y = Latitude, color = Agency, text=Street.Name), size = 2, alpha = alpha) +
           
           #geom_point(aes(x = Longitude, y = Latitude, color = Complaint.Type.Clean), size = 2, alpha = alpha) +
           geom_text(data = borough_centroids, aes(x = st_coordinates(geometry)[,1], 
@@ -1861,8 +1872,8 @@ server <- function(input, output, session) {
           scale_alpha_identity() +  # Use provided alpha values directly
           scale_size_identity() +   # Use provided size values directly
           labs(
-            title = "NYC Complaints (Filtered by Resolution.Time)", # Static title
-            color = "Complaint Type",  # Legend title for color
+            title = "", # Static title
+            color = "Agency",  # Legend title for color
             size = NULL    # No size legend
           ) +
           
@@ -1870,9 +1881,14 @@ server <- function(input, output, session) {
           
           theme_minimal() +
           theme(
-            legend.position = "right", # Position the legend on the right
-            axis.text = element_blank(),  # Remove axis text
-            axis.ticks = element_blank(), # Remove axis ticks
+            legend.position = "right",  # Position the legend on the right
+            axis.text = element_blank(),  # Bold axis text
+            axis.title = element_blank(),  # Bold axis titles
+            legend.text = element_text(face = "bold"),  # Bold legend text
+            legend.title = element_text(face = "bold"),  # Bold legend title
+            plot.title = element_text(face = "bold"),  # Bold plot title
+            plot.subtitle = element_text(face = "bold"),  # Bold plot subtitle
+            plot.caption = element_text(face = "bold"),  # Bold plot caption
             panel.grid = element_blank()  # Remove background grid lines
           ) 
       } 
@@ -1880,7 +1896,7 @@ server <- function(input, output, session) {
         p <- ggplot(data = plot_data) +
           geom_sf(data = nyc_boroughs, fill = "gray90", color = "black") +
           
-          geom_point(aes(x = Longitude, y = Latitude, color = day_type), size = 2, alpha = alpha) +
+          geom_point(aes(x = Longitude, y = Latitude, color = day_type, text=Street.Name), size = 2, alpha = alpha) +
           
           #geom_point(aes(x = Longitude, y = Latitude, color = Complaint.Type.Clean), size = 2, alpha = alpha) +
           geom_text(data = borough_centroids, aes(x = st_coordinates(geometry)[,1], 
@@ -1892,8 +1908,8 @@ server <- function(input, output, session) {
           scale_alpha_identity() +  # Use provided alpha values directly
           scale_size_identity() +   # Use provided size values directly
           labs(
-            title = "NYC Complaints (Filtered by Resolution.Time)", # Static title
-            color = "Complaint Type",  # Legend title for color
+            title = "", # Static title
+            color = "Day Type",  # Legend title for color
             size = NULL    # No size legend
           ) +
           
@@ -1901,16 +1917,21 @@ server <- function(input, output, session) {
           
           theme_minimal() +
           theme(
-            legend.position = "right", # Position the legend on the right
-            axis.text = element_blank(),  # Remove axis text
-            axis.ticks = element_blank(), # Remove axis ticks
+            legend.position = "right",  # Position the legend on the right
+            axis.text = element_blank(),  # Bold axis text
+            axis.title = element_blank(),  # Bold axis titles
+            legend.text = element_text(face = "bold"),  # Bold legend text
+            legend.title = element_text(face = "bold"),  # Bold legend title
+            plot.title = element_text(face = "bold"),  # Bold plot title
+            plot.subtitle = element_text(face = "bold"),  # Bold plot subtitle
+            plot.caption = element_text(face = "bold"),  # Bold plot caption
             panel.grid = element_blank()  # Remove background grid lines
           ) 
       } 
       
     }
     
-    ggplotly(p, tooltip = c("Complaint.Type.Clean", "Resolution.Time"))
+    ggplotly(p, tooltip = "text")
     
   })
 }
